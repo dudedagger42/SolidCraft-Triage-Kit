@@ -32,8 +32,7 @@ for _d in (CASES, QUEUE, LOGS):
 POSTED, FIXES, LASTPOST = os.path.join(LOGS, "posted.jsonl"), os.path.join(LOGS, "fixes.jsonl"), os.path.join(LOGS, "last_post.txt")
 RULES, CHECKLIST, LESSONS = os.path.join(HERE, "rules.json"), os.path.join(HERE, "checklist.json"), os.path.join(ROOT, "docs", "lessons.md")
 VERSION = open(os.path.join(ROOT, "VERSION"), encoding="utf-8").read().strip()
-MARKER = f"<!-- solidcraft-triage-kit v{VERSION} -->"
-MARKER_RE = re.compile(r"<!-- solidcraft-triage-kit v(\d+\.\d+)(?: status=(\w+))? -->")
+MARKER_RE = re.compile(r"<!-- solidcraft-triage-kit v(\d+\.\d+)(?: https://\S+)?(?: status=(\w+))? -->")
 HEADER_RE = re.compile(r"\*\*(?:Triage|Verified|Triaged) by @?([A-Za-z0-9-]+):?\*\*:?")
 
 
@@ -47,6 +46,7 @@ def _cfg():
 
 CFG = _cfg()
 REPO, KIT_REPO, BOTS = CFG["upstream_repo"], CFG["kit_repo"], set(CFG["bots"])
+MARKER = f"<!-- solidcraft-triage-kit v{VERSION} https://github.com/{KIT_REPO} -->"  # hidden; lets any agent reading a thread find the kit
 GH = shutil.which("gh") or r"C:\Program Files\GitHub CLI\gh.exe"
 SRC_REPO = os.environ.get("SOLIDCRAFT_SRC") or os.path.join(ROOT, "..", "solidcraft")  # a checkout with an `upstream` remote; read via `git grep` only
 ATT = re.compile(r"https://github\.com/user-attachments/files/[^\s)\"\]>]+")   # zips, designs, json, step: things to run
@@ -61,7 +61,22 @@ CANT_RUN = "I can only triage here; this still needs to be reproduced."
 
 
 # ---------------------------------------------------------------- plumbing
+GH_WRITES = {("issue", "comment"), ("issue", "create"), ("issue", "edit"), ("issue", "close"), ("issue", "reopen"),
+             ("pr", "create"), ("pr", "comment"), ("pr", "edit"), ("pr", "merge"), ("label", "create")}
+
+
+def gh_is_write(args):
+    if args and args[0] == "api":
+        if "-X" in args:
+            return args[args.index("-X") + 1].upper() != "GET"
+        return any(x in args for x in ("-f", "-F", "--field", "--raw-field", "--input"))  # gh api defaults to POST with fields
+    return tuple(args[:2]) in GH_WRITES
+
+
 def gh(*args, inp=None):
+    if os.environ.get("TRIAGE_DRY_RUN") == "1" and gh_is_write(args):
+        print(f"DRY RUN: skipped gh {' '.join(args[:4])}")  # every GitHub write stops here in a dry run
+        return ""
     r = subprocess.run([GH, *args], input=inp, capture_output=True, text=True, encoding="utf-8")
     if r.returncode:
         raise RuntimeError(f"gh {' '.join(args[:3])}: {r.stderr.strip()[:300]}")
@@ -283,6 +298,8 @@ def cmd_claim(a):
         return say(f"#{a.n}: already yours ({st['reason']})")
     if not st["ok"]:
         sys.exit(f"#{a.n}: not claimable: {st['reason']}")
+    if os.environ.get("TRIAGE_DRY_RUN") == "1":
+        return say(f"DRY RUN #{a.n}: claimable; no reaction added")
     gh("api", f"repos/{REPO}/issues/{a.n}/reactions", "-X", "POST", "-f", f"content={CFG['claim_reaction']}")
     time.sleep(3)
     st = claim_state(a.n)

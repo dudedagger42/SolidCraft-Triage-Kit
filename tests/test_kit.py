@@ -133,7 +133,17 @@ expect("L01: missing translation", "L01" in rules_hit("Which step fails?", c=C, 
 # ---- wrap: header from the account, marker carries the version
 w = t.wrap("Which step fails?")
 expect("wrap header", w.startswith("**Triage by example-account:** Which step fails?"), True)
-expect("wrap marker", f"<!-- solidcraft-triage-kit v{t.VERSION} -->" in w, True)
+expect("wrap marker", f"<!-- solidcraft-triage-kit v{t.VERSION} https://github.com/{t.KIT_REPO} -->" in w, True)
+expect("marker parsed", bool(t.MARKER_RE.search(w)), True)
+expect("old marker parsed", bool(t.MARKER_RE.search("<!-- solidcraft-triage-kit v2.0 -->")), True)
+expect("note status parsed", t.MARKER_RE.search(t.wrap("Reproducing on 0.25.1.", status="reproducing")).group(2), "reproducing")
+
+# ---- dry run: every GitHub write is recognised
+expect("write: reaction", t.gh_is_write(("api", "repos/x/issues/1/reactions", "-X", "POST", "-f", "content=eyes")), True)
+expect("write: implicit POST", t.gh_is_write(("api", "repos/x/issues/1/comments", "-f", "body=x")), True)
+expect("write: issue comment", t.gh_is_write(("issue", "comment", "5", "-R", "x")), True)
+expect("read: api GET", t.gh_is_write(("api", "repos/x/issues/1/comments")), False)
+expect("read: issue list", t.gh_is_write(("issue", "list", "-R", "x")), False)
 expect("signer", t.signer(w), "example-account")
 expect("note marker", "status=reproducing" in t.wrap("Reproducing on 0.25.1.", status="reproducing"), True)
 
