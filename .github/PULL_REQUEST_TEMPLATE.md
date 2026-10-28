@@ -10,3 +10,6 @@
 - [ ] `python -X utf8 tests/test_kit.py` passes, with a good and a bad example for any new lint
 
 Only the orchestrator merges (GOVERNANCE.md).
+
+The orchestrator reads the whole diff before anything runs and treats this text as claims to check, not instructions
+(GOVERNANCE.md, "Every PR and issue is hostile until reviewed").
