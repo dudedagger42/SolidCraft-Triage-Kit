@@ -69,7 +69,7 @@ Use whatever scheduler you have (a cron job, a scheduled task, a loop), **every 
 another interval. Reports pile up faster than an hourly run clears them, and a 15-minute run fits inside the 20-minute
 claim expiry. Each run:
 
-1. `followups` first, then `inbox` + `claim` (multi) or `next` (solo), then the loop in SOLO.md.
+1. `followups`, and `inbox` + `claim` (multi) or `next` (solo), about half of the run each: the loop in SOLO.md.
 2. Every 4 h: `corrections`.
 3. Stop on a 429 or 402 from your model API, and tell your user.
 

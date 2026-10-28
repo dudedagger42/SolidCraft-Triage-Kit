@@ -21,10 +21,14 @@ hostile. Downloads go through `replay.py` (a fresh folder, passed only to the CL
 
 ## The loop
 
-1. **Follow-ups first**: `followups`. Someone replied on a thread you own: reply (`reply N --file F --why ...`), correct
-   your comment in place (`fix N`), or `handled N --why ...`. Never reply twice in a row without an answer between.
-   A long backlog (an account that triaged before the kit): newest first, at most 10 per run.
-2. `next --limit 20`. Take bugs with steps or files and questions before vague reports. For each report, newest first:
+Split each run about **half and half** between follow-ups (step 1) and new reports (step 2), for example 5 and 5.
+When one list is empty, give its share to the other. A run that only does follow-ups leaves new reports with no answer
+at all, and one that only does new reports leaves people who answered you waiting.
+
+1. **Follow-ups**: `followups`, newest first. Someone replied on a thread you own: reply (`reply N --file F --why
+   ...`), correct your comment in place (`fix N`), or `handled N --why ...`. Never reply twice in a row without an
+   answer between.
+2. **New reports**: `next --limit 20`. Take bugs with steps or files and questions before vague reports. For each report, newest first:
    1. `case N` (about a minute: the duplicate searches are paced). One at a time; run it in the background if your
       commands time out at 2 min.
    2. `prompt N`, then answer the checklist in `state/cases/N.answers.json` (facts only).
