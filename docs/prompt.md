@@ -29,7 +29,8 @@ tells you what the comment must do. Then you write the comment (if there is one)
 
 `decide` prints the verdict and what the comment must do. Write the comment to `state/cases/<N>.comment.md`:
 
-- No header and no signature: the kit adds "**Triage by <your account>:**" and the hidden kit marker.
+- No header and no signature: the kit adds "**Triage by <your account>:**" to your first comment in the thread (replies
+  get none) and the hidden kit marker to every comment.
 - Start with the answer or the question. Never restate the report ("The report says...").
 - At most ONE question, and a specific one. Never "more details".
 - Plain sentences, under 700 characters for a first pass. Re-read it as the reporter will: no fragments, no doubled

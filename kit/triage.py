@@ -147,12 +147,13 @@ def header():
     return f"**Triage by {me()}:**"
 
 
-def wrap(text, status=None):
+def wrap(text, status=None, head=True):
     """Header + text + hidden marker. The marker carries the kit version (and `status=reproducing` on a claim note,
-    `status=repro_wanted` on a could-not-run comment that asks for a reproducer)."""
+    `status=repro_wanted` on a could-not-run comment that asks for a reproducer). Only the account's first comment in a
+    thread carries the header; a reply (`head=False`) has the marker alone."""
     t = HEADER_RE.sub("", text.strip(), count=1).strip() if text.lstrip().startswith("**") else text.strip()
     mark = MARKER if not status else MARKER.replace(" -->", f" status={status} -->")
-    return f"{header()} {t}\n\n{mark}"
+    return f"{header()} {t}\n\n{mark}" if head else f"{t}\n\n{mark}"
 
 
 def signer(body):
@@ -965,12 +966,13 @@ def mine_on(d):
 
 def post_comment(n, text, status=None, d=None, by="first", extra=None):
     d = d or issue_live(n)
+    head = not mine_on(d)  # the header opens the account's part of the thread once; replies carry only the marker
     if dry_run():
-        jl_append(os.path.join(LOGS, "dryrun.jsonl"), {"ts": now(), "issue": n, "text": wrap(text, status)})
-        say(wrap(text, status))
+        jl_append(os.path.join(LOGS, "dryrun.jsonl"), {"ts": now(), "issue": n, "text": wrap(text, status, head)})
+        say(wrap(text, status, head))
         return say(f"DRY RUN #{n}: the comment above was not posted; logged to state/logs/dryrun.jsonl")
     gap_wait()
-    out = ghj("api", f"repos/{REPO}/issues/{n}/comments", "-X", "POST", "-F", "body=@-", inp=wrap(text, status))
+    out = ghj("api", f"repos/{REPO}/issues/{n}/comments", "-X", "POST", "-F", "body=@-", inp=wrap(text, status, head))
     open(LASTPOST, "w").write(str(time.time()))
     jl_append(POSTED, {"ts": now(), "issue": n, "comment_id": out["id"], "url": out["html_url"], "by": by, "status": status, "text": text, **(extra or {})})
     say(f"posted #{n}: {out['html_url']}")
@@ -982,7 +984,9 @@ def edit_comment(n, cid, text, why, status=None):
         return say(f"DRY RUN: would edit comment {cid} on #{n}")
     gap_wait()
     old = ghj("api", f"repos/{REPO}/issues/comments/{cid}")
-    ghj("api", f"repos/{REPO}/issues/comments/{cid}", "-X", "PATCH", "-F", "body=@-", inp=wrap(text, status))
+    rows = [c for c in ghj("api", f"repos/{REPO}/issues/{n}/comments?per_page=100") if c["user"]["login"] == me() and is_triage(c["body"])]
+    head = not rows or rows[0]["id"] == cid  # only the first comment keeps the header; an edited reply loses it
+    ghj("api", f"repos/{REPO}/issues/comments/{cid}", "-X", "PATCH", "-F", "body=@-", inp=wrap(text, status, head))
     open(LASTPOST, "w").write(str(time.time()))
     jl_append(FIXES, {"ts": now(), "issue": n, "comment_id": cid, "why": why, "old": old["body"], "new": text})
     say(f"edited comment {cid} on #{n} in place (no new comment): {old['html_url']}")
