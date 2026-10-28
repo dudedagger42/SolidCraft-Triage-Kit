@@ -206,7 +206,7 @@ def latest_release():
     if c.get("at") and age_s(c["at"]) < 3600:
         return c["tag"]
     try:
-        tag = ghj("release", "list", "-R", REPO, "-L", "1", "--json", "tagName")[0]["tagName"].lstrip("v")
+        tag = ghj("release", "list", "-R", REPO, "--exclude-pre-releases", "-L", "1", "--json", "tagName")[0]["tagName"].lstrip("v")  # not the nightly
     except (RuntimeError, IndexError, ValueError):
         return c.get("tag")
     jsave(p, {"tag": tag, "at": now()})
