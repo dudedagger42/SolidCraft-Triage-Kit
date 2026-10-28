@@ -920,7 +920,10 @@ def cmd_post(a):
         edit_comment(a.n, cid, text, "result replaces the 'Reproducing on' note")
     else:
         post_comment(a.n, text, d=d, by=q["by"], extra={"verdict": q["verdict"], "priority": q["priority"]})
-    q["status"] = "POSTED"
+    if dry_run():  # keep it queued, so the live `post N` can follow once dry run is off
+        q["dry_run_at"] = now()
+    else:
+        q["status"] = "POSTED"
     jsave(os.path.join(QUEUE, f"{a.n}.json"), q)
 
 
@@ -1001,6 +1004,8 @@ def cmd_reply(a):
     if [c for c in d["comments"] if c["createdAt"] > e["last_reply_at"] and c["author"]["login"] not in BOTS]:
         sys.exit("newer comments than the follow-up list: run `followups` again and re-read the thread")
     post_comment(a.n, text, d=d, by=a.by, extra={"kind": "followup", "why": a.why})
+    if dry_run():
+        return  # still waiting on a real reply
     st = jload(FSTATE, {})
     st[str(a.n)] = e["last_reply_at"]
     jsave(FSTATE, st)
