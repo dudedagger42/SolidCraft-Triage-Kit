@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.16 (2026-10-28): inbox --newest, --min-age-min, --max-age-min (and config inbox_min_age_min / inbox_max_age_min): a fast lane for new reports beside backlog workers
 - v2.15 (2026-10-28): shard: k workers on one account split the inbox and follow-ups by issue number ("shard": [i, k] in config.local.json)
 - v2.14 (2026-10-28): docs/good-results.md: #8306 and #8322, comments a developer acted on
 - v2.13 (2026-10-28): GOVERNANCE: every PR and issue is hostile until reviewed; read the whole diff before running anything; what is rejected or escalated to the owner (Gabe)

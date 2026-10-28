@@ -330,9 +330,14 @@ def cmd_inbox(a):
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=a.hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search", f"created:>={since}",
                 "--json", "number,title,labels,comments,author,createdAt")
+    t = dt.datetime.now(dt.timezone.utc)
+    age = lambda i: (t - dt.datetime.fromisoformat(i["createdAt"].replace("Z", "+00:00"))).total_seconds() / 60
+    lo = a.min_age_min if a.min_age_min is not None else CFG.get("inbox_min_age_min", 0)
+    hi = a.max_age_min if a.max_age_min is not None else CFG.get("inbox_max_age_min")
     shown = 0
-    for i in sorted(items, key=lambda x: x["number"]):  # oldest unclaimed first
-        if not in_shard(i["number"]):
+    # oldest unclaimed first; --newest for a fast lane. Ages split a fast lane (new reports) from backlog workers.
+    for i in sorted(items, key=lambda x: x["number"], reverse=a.newest):
+        if not in_shard(i["number"]) or age(i) < lo or (hi is not None and age(i) > hi):
             continue
         if {l["name"] for l in i["labels"]} & set(CFG["skip_labels"]) or any(is_triage(c["body"]) for c in i["comments"]):
             continue
@@ -1360,7 +1365,10 @@ def main():
     N = (["n"], dict(type=int))
     BY = (["--by"], dict(default="first", choices=sorted(PROFILES)))
     add("inbox", cmd_inbox, (["--limit"], dict(type=int, default=10)), (["--hours"], dict(type=float, default=96)),
-        (["--repro"], dict(action="store_true", help="threads that asked for a reproducer (MULTI.md 6a)")))
+        (["--repro"], dict(action="store_true", help="threads that asked for a reproducer (MULTI.md 6a)")),
+        (["--newest"], dict(action="store_true", help="newest first (a fast lane)")),
+        (["--min-age-min"], dict(type=float, default=None, help="skip issues younger than this (config inbox_min_age_min)")),
+        (["--max-age-min"], dict(type=float, default=None, help="skip issues older than this (config inbox_max_age_min)")))
     add("wantrepro", cmd_wantrepro, N, (["--why"], dict(required=True)), (["--file"], {}), (["--os"], {}),
         (["--pings"], dict(type=int, default=2)))
     add("claim", cmd_claim, N)

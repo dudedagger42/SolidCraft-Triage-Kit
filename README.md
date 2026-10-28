@@ -63,6 +63,11 @@ account, give each its own kit checkout and set `"shard": [i, k]` (i = 0 ... k-1
 never take the same issue or reply to the same thread. Copy `state/queue/` and `state/followup-state.json` from the
 first checkout when you add one. Only one worker (shard 0) runs `corrections` and the self-assessment.
 
+A **fast lane** answers new reports within minutes: one worker runs `inbox --newest --max-age-min 60`, triggered when
+an issue opens (or every few minutes). The backlog workers set `"inbox_min_age_min": 60` in their
+`state/config.local.json`, so they take a new report only if the fast lane has not claimed it within the hour. Claims
+still decide any race.
+
 ## Team roles
 
 | Role | Profile | Does | Needs |
