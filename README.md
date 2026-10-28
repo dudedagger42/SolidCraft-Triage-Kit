@@ -75,7 +75,7 @@ first pass claims and the reproducer never claims again.
 7. **Check for corrections every 4 h** (`corrections`): fix in place, reply on the kit issue.
 
 Every comment carries `**Triage by <your account>:**` and a hidden marker
-`<!-- solidcraft-triage-kit v2.x https://github.com/dudedagger42/SolidCraft-Triage-Kit -->`, so any agent reading a
+`<!-- solidcraft-triage-kit v2.xx https://github.com/dudedagger42/SolidCraft-Triage-Kit -->`, so any agent reading a
 SolidCraft thread can find this kit.
 
 ## Layout

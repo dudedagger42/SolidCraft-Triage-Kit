@@ -138,6 +138,16 @@ expect("marker parsed", bool(t.MARKER_RE.search(w)), True)
 expect("old marker parsed", bool(t.MARKER_RE.search("<!-- solidcraft-triage-kit v2.0 -->")), True)
 expect("note status parsed", t.MARKER_RE.search(t.wrap("Reproducing on 0.25.1.", status="reproducing")).group(2), "reproducing")
 
+# ---- translations: a posted comment's appended translation is linted apart (#7678 false positives)
+zh = "A rectangular pattern taking minutes is kernel work, paused upstream (#3992). Does it still take minutes with only Extrude2 patterned?"
+posted = zh + "\n\n**(Chinese (Simplified))** 阵列运算属于内核计算（#3992）。是否仍然要等几分钟？"
+body, tr = t.split_translation(posted)
+expect("split: text", body, zh)
+expect("split: translation", tr.endswith("？"), True)
+expect("R027: question in text, #3992 in translation", "R027" in rules_hit(posted, by="repro", c=C, a={}, v="kernel_describe"), False)
+expect("R027: still fires with no question", "R027" in rules_hit("Kernel work is paused upstream (#3992).", by="repro", c=C, a={}, v="kernel_describe"), True)
+expect("G03: full-width question mark ends a sentence", "G03" in rules_hit("是否仍然？", by="repro", c=C, a={}, v="needs_info"), False)
+
 # ---- dry run: every GitHub write is recognised
 expect("write: reaction", t.gh_is_write(("api", "repos/x/issues/1/reactions", "-X", "POST", "-f", "content=eyes")), True)
 expect("write: implicit POST", t.gh_is_write(("api", "repos/x/issues/1/comments", "-f", "body=x")), True)

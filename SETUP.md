@@ -41,7 +41,7 @@ they approve.
 `app_check` question with "not checked in the app: no build here". NEEDS-REPRO issues stay in `state/queue/` and `next`
 skips them; in multi mode `unclaim N` so an account that can run it takes it.
 
-**Two version numbers:** the kit's version (`VERSION`, v2.0, v2.1, ...) goes in the hidden comment marker; SolidCraft's
+**Two version numbers:** the kit's version (`VERSION`: v2.01, v2.02, ...) goes in the hidden comment marker; SolidCraft's
 release (`release`, for example 0.25.1) is the build you reproduce on and name in a reproduction.
 
 ## 4. Tell your user how it works

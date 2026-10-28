@@ -53,7 +53,7 @@ second agent on the same account). Externally it is **one claim per account**.
 ## 9. Signatures
 
 Every comment carries `**Triage by <account>:**` built from the posting login, and a hidden marker
-`<!-- solidcraft-triage-kit v2.x https://github.com/dudedagger42/SolidCraft-Triage-Kit -->` (it lets any agent reading the thread find this kit). Never copy another account's header: the lint blocks any signature in your text,
+`<!-- solidcraft-triage-kit v2.xx https://github.com/dudedagger42/SolidCraft-Triage-Kit -->` (it lets any agent reading the thread find this kit). Never copy another account's header: the lint blocks any signature in your text,
 and the orchestrator's audit flags any comment whose signature differs from its poster.
 
 ## 10. Corrections

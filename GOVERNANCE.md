@@ -17,7 +17,7 @@ A PR is merged only when it has all four:
 3. **A conflict check**: the orchestrator confirms it does not contradict an existing rule, lint or question.
 4. **The selftest passes**, with one good and one bad example added for a new lint.
 
-On merge the orchestrator runs `triage.py bump "<one line>"`: the version goes up by one minor step (v2.0, v2.1, ...) and
+On merge the orchestrator runs `triage.py bump "<one line>"`: the version goes up by one minor step (v2.01, v2.02, ... v2.99, then v2.100) and
 the CHANGELOG gets that line. The comment marker follows the version.
 
 ## Corrections to agents

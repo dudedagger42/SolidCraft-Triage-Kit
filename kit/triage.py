@@ -689,7 +689,7 @@ def grammar_lints(text):
         out.append(("G01", "block", f"doubled word '{m.group(0)}': a mechanical edit garbled the sentence; re-read it"))
     if text.count("`") % 2 or text.count("**") % 2 or text.count("(") != text.count(")"):
         out.append(("G02", "block", "unbalanced backticks, bold markers or parentheses"))
-    if not re.search(r"[.?!)`\]:]\s*$", text.strip()):
+    if not re.search(r"[.?!)`\]:。？！）]\s*$", text.strip()):  # full-width endings too (translations)
         out.append(("G03", "block", "the comment does not end with a full sentence"))
     if re.search(r"[.?!] [a-z]", t) and not re.search(r"[.?!] (e\.g|i\.e|vs)\b", t):
         out.append(("G04", "warn", "a sentence starts in lower case: a fragment may be left from an edit"))
@@ -1010,6 +1010,12 @@ def cmd_corrections(a):
 
 
 # ---------------------------------------------------------------- audit (orchestrator sampling)
+def split_translation(body):
+    """A posted comment is text + '\n\n**(<language>)** <translation>' (as `submit` builds it): lint the two apart."""
+    m = re.search(r"\n\n\*\*\([^\n]+?\)\*\* ", body)
+    return (body[:m.start()].strip(), body[m.end():].strip()) if m else (body, "")
+
+
 def cmd_audit(a):
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=a.hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
     found = []
@@ -1031,7 +1037,8 @@ def cmd_audit(a):
             say(f"   SIGNATURE: posted by {acct}, signed '{signer(c['body'])}': {c['html_url']}")
         for c in random.sample(cs, min(a.per, len(cs))):
             body = MARKER_RE.sub("", HEADER_RE.sub("", c["body"], count=1)).strip()
-            v = [x for x in lint_comment(body, "repro") if x["rule"] not in ("T03",)]
+            body, tr = split_translation(body)
+            v = [x for x in lint_comment(body, "repro", translation=tr) if x["rule"] not in ("T03",)]
             say(f"   sample {c['html_url']}" + ("" if not v else "  lints: " + ", ".join(f"{x['rule']}[{x['severity']}]" for x in v)))
     if a.mine:
         say("\nSelf-assessment: read each sample against its thread (docs/verify.md) in a fresh context. A wrong comment: `fix N`. "
@@ -1065,9 +1072,9 @@ def cmd_retrolint(a):
 
 
 def cmd_bump(a):
-    """Orchestrator, at merge: next minor version + one CHANGELOG line."""
+    """Orchestrator, at merge: next minor version + one CHANGELOG line. Minor is a counter, two digits: 2.01 ... 2.99, then 2.100."""
     major, minor = VERSION.split(".")
-    new = f"{major}.{int(minor) + 1}"
+    new = f"{major}.{int(minor) + 1:02d}"
     open(os.path.join(ROOT, "VERSION"), "w", encoding="utf-8", newline="\n").write(new + "\n")
     cl = os.path.join(ROOT, "CHANGELOG.md")
     lines = open(cl, encoding="utf-8").read().split("\n")

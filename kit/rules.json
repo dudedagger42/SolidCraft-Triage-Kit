@@ -49,7 +49,7 @@
    "message": "The Environment block already gives the OS."},
   {"id": "R026", "profile": "all", "severity": "block", "pattern": "\\b(logged|noted|tracked|filed|added to the backlog)\\b",
    "message": "A triager cannot file, log or track anything. Say what the app does or ask the question."},
-  {"id": "R027", "profile": "all", "severity": "block", "pattern": "(?s)^(?!.*(\\?|zip)).*#3992",
+  {"id": "R027", "profile": "all", "severity": "block", "pattern": "(?s)\\A(?!.*(\\?|？|zip)).*#3992",
    "message": "A kernel comment needs one pointed question or the zip line; 'kernel work is paused (#3992)' alone adds nothing."},
   {"id": "R029", "profile": "all", "severity": "block", "pattern": "\\b(more|additional|further) (details|information|info|context)\\b|\\bany (other|more) (details|info)",
    "message": "Generic request for 'more information'. Ask for ONE named thing (the design zipped, the error text, the step that fails)."},
