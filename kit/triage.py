@@ -1076,7 +1076,8 @@ def cmd_post(a):
 
 def cmd_fix(a):
     text = open(a.file, encoding="utf-8").read().strip()
-    v = [x for x in lint_comment(text, a.by, jload(os.path.join(CASES, f"{a.n}.json"))) if x["severity"] == "block"]
+    body, tr = split_translation(text)  # a fixed comment keeps its '**(<language>)** ...' translation; lint the two apart
+    v = [x for x in lint_comment(body, a.by, jload(os.path.join(CASES, f"{a.n}.json")), translation=tr) if x["severity"] == "block"]
     if v:
         show(v)
         sys.exit("REJECTED: fix the text")
