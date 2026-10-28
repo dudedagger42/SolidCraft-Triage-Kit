@@ -65,6 +65,11 @@ GH_WRITES = {("issue", "comment"), ("issue", "create"), ("issue", "edit"), ("iss
              ("pr", "create"), ("pr", "comment"), ("pr", "edit"), ("pr", "merge"), ("label", "create")}
 
 
+def dry_run():
+    """TRIAGE_DRY_RUN=1, or "dry_run": true in state/config.local.json: no GitHub write happens."""
+    return os.environ.get("TRIAGE_DRY_RUN") == "1" or bool(CFG.get("dry_run"))
+
+
 def gh_is_write(args):
     if args and args[0] == "api":
         if "-X" in args:
@@ -74,7 +79,7 @@ def gh_is_write(args):
 
 
 def gh(*args, inp=None):
-    if os.environ.get("TRIAGE_DRY_RUN") == "1" and gh_is_write(args):
+    if dry_run() and gh_is_write(args):
         print(f"DRY RUN: skipped gh {' '.join(args[:4])}")  # every GitHub write stops here in a dry run
         return ""
     r = subprocess.run([GH, *args], input=inp, capture_output=True, text=True, encoding="utf-8")
@@ -298,7 +303,7 @@ def cmd_claim(a):
         return say(f"#{a.n}: already yours ({st['reason']})")
     if not st["ok"]:
         sys.exit(f"#{a.n}: not claimable: {st['reason']}")
-    if os.environ.get("TRIAGE_DRY_RUN") == "1":
+    if dry_run():
         return say(f"DRY RUN #{a.n}: claimable; no reaction added")
     gh("api", f"repos/{REPO}/issues/{a.n}/reactions", "-X", "POST", "-f", f"content={CFG['claim_reaction']}")
     time.sleep(3)
@@ -848,7 +853,7 @@ def mine_on(d):
 
 def post_comment(n, text, status=None, d=None, by="first", extra=None):
     d = d or issue_live(n)
-    if os.environ.get("TRIAGE_DRY_RUN") == "1":
+    if dry_run():
         jl_append(os.path.join(LOGS, "dryrun.jsonl"), {"ts": now(), "issue": n, "text": wrap(text, status)})
         say(wrap(text, status))
         return say(f"DRY RUN #{n}: the comment above was not posted; logged to state/logs/dryrun.jsonl")
@@ -861,7 +866,7 @@ def post_comment(n, text, status=None, d=None, by="first", extra=None):
 
 
 def edit_comment(n, cid, text, why, status=None):
-    if os.environ.get("TRIAGE_DRY_RUN") == "1":
+    if dry_run():
         return say(f"DRY RUN: would edit comment {cid} on #{n}")
     gap_wait()
     old = ghj("api", f"repos/{REPO}/issues/comments/{cid}")

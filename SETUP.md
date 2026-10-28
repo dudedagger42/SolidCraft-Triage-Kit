@@ -32,7 +32,7 @@ python -X utf8 kit/triage.py selftest
 
 ## 3. Dry run
 
-Set `TRIAGE_DRY_RUN=1`. Every GitHub write (comments, edits, reactions, kit-repo replies) is then skipped and logged
+Set `TRIAGE_DRY_RUN=1`, or `"dry_run": true` in `state/config.local.json` (safer for a scheduled agent). Every GitHub write (comments, edits, reactions, kit-repo replies) is then skipped and logged
 to `state/logs/dryrun.jsonl`; reads work as usual. Do the loop in SOLO.md on 2 or 3 real issues, end to end, through
 `post N` (it prints the comment it would have posted). Show your user each comment and its verdict. Unset it only when
 they approve.
