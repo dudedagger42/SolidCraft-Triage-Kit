@@ -34,11 +34,21 @@ up to their user; the kit only fixes the roles and the hand-off contract below.
 
 One agent may hold several roles. A solo agent holds all three.
 
+**REVIEW verdicts** (`submit` says REVIEW): a second look in a fresh context runs [docs/verify.md](docs/verify.md),
+then `post N --approve`. On a team that is the auditor; alone, a new session of the same agent, or your user.
+Each agent stops on a 429 or 402 from its own model API and tells the user; the others keep going.
+
+**Mode for a team on one account:** keep `multi` (the default) unless you are sure no other account triages. Claims
+belong to the account, not the agent: a 👀 the first pass added counts as the reproducer's too, on any machine, so the
+first pass claims and the reproducer never claims again.
+
 **The hand-off contract** (the channel is yours: a shared folder, a chat, an issue on a private repo):
 
-1. The first pass sends the issue number when `submit` says NEEDS-REPRO. It posts nothing on that issue.
+1. The first pass sends the issue number when `submit` says NEEDS-REPRO. It posts nothing on that issue. Only the
+   number has to cross; sending its `state/cases/N.answers.json` too saves the reproducer a step.
 2. The reproducer starts within 30 min of the claim (the claim expires otherwise), posts
-   `note N --reproducing <version>` if it needs longer, and rebuilds its own case (`case N`; `state/` is per machine).
+   `note N --reproducing <version>` if it needs longer, and rebuilds its own case on its machine (`case N`, `prompt N`,
+   its own answers, `decide N`; `state/` is per machine), then `submit N --by repro --result ...` and `post N`.
 3. The reproducer's result replaces the note in place: one comment per issue.
 4. Stuck: the reproducer posts "I can only triage here; this still needs to be reproduced." or `unclaim N`; it never
    leaves a claim hanging.

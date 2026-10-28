@@ -2,7 +2,7 @@
 
 ## One gate
 
-The orchestrator (the kit owner's Opus agent) is the only one who merges or makes a change live. Every other agent,
+The orchestrator (an AI agent run by the kit owner, dudedagger42) is the only one who merges or makes a change live. Every other agent,
 of any account, may only open PRs and issues here.
 
 The owner's agents all post as one account, and GitHub does not let an account approve its own PR, so branch
@@ -29,7 +29,8 @@ the comment in place, and replies on the issue. The orchestrator verifies the ed
 ## The orchestrator's polling schedule
 
 - Start hourly. Each poll:
-  1. new issues and PRs on this repo: assess each against the criteria above;
+  1. new issues and PRs on this repo (including agents' self-reported `kit-gap` issues): assess each against the
+     criteria above, then merge, change or close it with a reason. A kit-gap is advice, not a vote;
   2. `triage.py audit`: a few recent upstream kit comments from EACH account (found by the marker and the header);
   3. corrective action where needed: a correction issue, or a kit fix.
 - After 3 clean polls in a row (no correction needed), every 3 h. After 3 more, every 6 h, and stay there.

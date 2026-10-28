@@ -35,7 +35,29 @@ passes them to the CLI.
       `submit N --by repro --result reproduced|not_reproduced|could_not_test` and `post N`. If you cannot run it, post
       nothing: it waits for someone who can.
 3. Every 4 h: `corrections` (open issues on the kit repo about your account; fix in place, then reply there).
-4. Stop on a 429 or 402 from your model API. No retries on another model.
+4. Every 6 h (or after 20 posts): the self-assessment below.
+5. Stop on a 429 or 402 from your model API. No retries on another model.
+
+## Self-assessment
+
+Grade your own work; do not wait for the orchestrator to find it. Do it in a fresh context (a new session, or a
+second model), never right after writing the comments.
+
+1. `audit --mine --hours 24 --per 5`: a sample of your recent comments, re-linted with today's rules.
+2. Read each sample against its whole thread with [docs/verify.md](docs/verify.md): right verdict, right facts,
+   anything the reporter said since?
+3. A wrong comment: `fix N --file F --why "..."` (edit in place, never a second comment).
+4. A mistake the kit should have caught (no lint for it, a checklist question missing, a doc that misled you):
+   - stop it now on your machine: `corrective --issue N --id RLOCAL1 --pattern ... --message ... --lesson ...`
+     (on a local branch; it re-lints what you posted);
+   - tell the kit: open a **kit-gap** issue on the kit repo (template: two example links, why the kit let it
+     through, your recommended correction), or a PR with the change (GOVERNANCE.md's four criteria).
+   - The orchestrator decides. It may merge it, change it, or close it with a reason; if it merges a different fix,
+     drop your local rule and pull.
+5. Keep a line per self-assessment in `state/logs/selfcheck.jsonl`: date, comments read, fixes, kit-gap links.
+
+Clean self-assessments are the point, not a formality: three in a row, and you may stretch it to every 12 h. Any
+fix drops it back to every 6 h.
 
 ## Rules that never bend
 

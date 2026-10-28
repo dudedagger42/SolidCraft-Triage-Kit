@@ -15,7 +15,7 @@
     python -X utf8 kit/triage.py reply N --file F --why "..." / handled N --why "..."
     python -X utf8 kit/triage.py corrections [--reply K --file F]   open correction issues about your account on the kit repo
     python -X utf8 kit/triage.py appcheck "keyword" | cluster | rootcause "error text" [--cmd id]
-    python -X utf8 kit/triage.py audit [--hours 6] [--per 3]  orchestrator: sample recent kit comments per account, re-lint, flag signatures
+    python -X utf8 kit/triage.py audit [--hours 6] [--per 3] [--mine]  sample recent kit comments per account (--mine: self-assessment), re-lint, flag signatures
     python -X utf8 kit/triage.py lint-text F [--by first|repro]   lint any text file as a comment (no case needed)
     python -X utf8 kit/triage.py corrective ... | retrolint | maintainers [--refresh] | release | bump "changelog line" | selftest
 
@@ -1013,7 +1013,8 @@ def cmd_audit(a):
     found = []
     for page in range(1, 6):
         rows = ghj("api", f"repos/{REPO}/issues/comments?since={since}&per_page=100&page={page}")
-        found += [c for c in rows if is_triage(c["body"]) and c["created_at"] >= since]
+        found += [c for c in rows if is_triage(c["body"]) and c["created_at"] >= since
+                  and (not a.mine or c["user"]["login"] == me())]
         if len(rows) < 100:
             break
     by = {}
@@ -1030,7 +1031,11 @@ def cmd_audit(a):
             body = MARKER_RE.sub("", HEADER_RE.sub("", c["body"], count=1)).strip()
             v = [x for x in lint_comment(body, "repro") if x["rule"] not in ("T03",)]
             say(f"   sample {c['html_url']}" + ("" if not v else "  lints: " + ", ".join(f"{x['rule']}[{x['severity']}]" for x in v)))
-    say("\nRead each sample against its thread (docs/verify.md). A mistake: open a `correction` issue on the kit repo naming the account.")
+    if a.mine:
+        say("\nSelf-assessment: read each sample against its thread (docs/verify.md) in a fresh context. A wrong comment: `fix N`. "
+            "A mistake the kit should have caught: `corrective` here, then a `kit-gap` issue or a PR on the kit repo (SOLO.md).")
+    else:
+        say("\nRead each sample against its thread (docs/verify.md). A mistake: open a `correction` issue on the kit repo naming the account.")
 
 
 # ---------------------------------------------------------------- corrective / retrolint / bump
@@ -1203,7 +1208,8 @@ def main():
     add("reply", cmd_reply, N, (["--file"], dict(required=True)), (["--why"], dict(required=True)), BY)
     add("handled", cmd_handled, N, (["--why"], dict(required=True)))
     add("corrections", cmd_corrections, (["--reply"], dict(type=int)), (["--file"], {}))
-    add("audit", cmd_audit, (["--hours"], dict(type=float, default=6)), (["--per"], dict(type=int, default=3)))
+    add("audit", cmd_audit, (["--hours"], dict(type=float, default=6)), (["--per"], dict(type=int, default=3)),
+        (["--mine"], dict(action="store_true")))
     add("corrective", cmd_corrective, (["--issue"], dict(required=True)), (["--id"], dict(required=True)), (["--pattern"], dict(required=True)),
         (["--message"], dict(required=True)), (["--lesson"], dict(required=True)), (["--severity"], dict(default="block", choices=["block", "warn"])),
         (["--profile"], dict(default="all", choices=["first", "repro", "all"])))
