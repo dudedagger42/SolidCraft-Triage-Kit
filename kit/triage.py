@@ -901,7 +901,7 @@ def cmd_post(a):
         sys.exit("someone commented since the case was built: rebuild the case (`case N`) and re-answer")
     if mode() == "multi":
         st = claim_state(a.n, d)
-        if not st.get("mine"):
+        if not st.get("mine") and not (dry_run() and st.get("ok")):  # a dry run takes no claim; claimable is enough
             sys.exit(f"MULTI: you do not hold the claim ({st['reason']}). `claim {a.n}` first")
     if q["verdict"] == "duplicate":
         cs = ghj("issue", "view", str(q["answers"]["duplicate_of"]), "-R", REPO, "--json", "state")
