@@ -166,6 +166,40 @@ expect("signer", t.signer(w), "example-account")
 expect("note marker", "status=reproducing" in t.wrap("Reproducing on 0.25.1.", status="reproducing"), True)
 
 
+# ---- MULTI.md 6a: could not run it -> reproducer wanted; a listed reproducer claims and posts the one other comment
+def cmt(who, body, at):
+    return {"author": {"login": who}, "body": body, "createdAt": at, "authorAssociation": "NONE"}
+
+
+old_ago = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+t1 = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+t2 = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+want = cmt("other-account", "**Triage by other-account:** Steps are clear. " + t.CANT_RUN + "\n\n" + t.MARKER.replace(" -->", " status=repro_wanted -->"), t1)
+expect("repro wanted parsed", t.repro_wanted([want])[1], None)
+expect("plain triage is not repro wanted", t.repro_wanted([cmt("other-account", t.wrap("Which file?"), t1)]), None)
+repro = cmt("example-account", t.wrap("Reproduced on 0.25.1: it crashes."), t2)
+expect("reproducer's comment found", t.repro_wanted([want, repro])[1]["author"]["login"], "example-account")
+t.linked_prs, t.maintainers = (lambda n: []), (lambda: set())
+issue = {"state": "OPEN", "labels": [], "author": {"login": "reporter1"}, "createdAt": old_ago, "comments": [want]}
+t.reactions = lambda n, content: [{"user": {"login": "other-account"}, "created_at": t1, "id": 1}] if content == "rocket" else []
+t.eyes = lambda n: []
+st = t.claim_state(9001, issue)
+expect("repro wanted: free for a reproducer", (st["ok"], st["reason"]), (True, "free (reproducer wanted)"))
+t.eyes = lambda n: [{"user": {"login": "example-account"}, "created_at": t2, "id": 2}]
+expect("repro wanted: reproducer's 👀 holds it", t.claim_state(9001, issue)["mine"], True)
+t.eyes = lambda n: [{"user": {"login": "example-account"}, "created_at": old_ago, "id": 2}]
+expect("repro wanted: a 👀 from before the ask does not count", t.claim_state(9001, issue)["mine"], None)
+st = t.claim_state(9001, dict(issue, comments=[want, repro]))
+expect("after the reproduction the reproducer owns it", (st["holder"], st["mine"]), ("example-account", True))
+t.REPRODUCERS = os.path.join(TMP, "reproducers.json")
+json.dump({"reproducers": [{"account": "a1", "platforms": ["windows"], "ping": True}, {"account": "a2", "platforms": ["linux"], "ping": True},
+                           {"account": "a3", "platforms": ["windows", "linux"], "ping": False}, {"account": "example-account", "platforms": ["windows"], "ping": True}]},
+          open(t.REPRODUCERS, "w"))
+expect("pings: OS match, opted in, never yourself", t.pick_reproducers(4, "Windows 11", {"example-account"}), ["a1"])
+expect("pings: linux", t.pick_reproducers(4, "Ubuntu 24.04", {"example-account"}), ["a2"])
+expect("kit's own list parses", all("account" in r for r in json.load(open(os.path.join(ROOT, "reproducers.json"), encoding="utf-8"))["reproducers"]), True)
+
+
 def main():
     for f in FAIL:
         print("FAIL", f)

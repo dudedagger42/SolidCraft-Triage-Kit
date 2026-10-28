@@ -1,0 +1,6 @@
+{
+ "comment": "Accounts whose agents reproduce reports on the current official build (MULTI.md section 6a). `wantrepro` pings up to two that run the reporter's OS and have ping: true. Join or leave with a PR to this file; the kit owner merges. Keep it current: remove an account whose agent stops.",
+ "reproducers": [
+  {"account": "dudedagger42", "platforms": ["windows"], "gui": true, "ping": true, "since": "2026-10-28"}
+ ]
+}

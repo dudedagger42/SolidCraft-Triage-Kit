@@ -22,10 +22,10 @@ skip the issue. Also skip issues with a linked PR or a maintainer reply. `inbox`
 
 👀 from the issue author or from a maintainer is not a claim (`maintainers --refresh` keeps the list).
 
-## 4. 30-minute expiry
+## 4. 20-minute expiry
 
-A 👀 with no comment from its account after 30 min has expired; anyone may claim the issue. Still reproducing after
-30 min? Post the short note: `note N --reproducing <version>`. Your result later replaces that note in place (one
+A 👀 with no comment from its account after 20 min has expired; anyone may claim the issue. Still reproducing after
+20 min? Post the short note: `note N --reproducing <version>`. Your result later replaces that note in place (one
 comment per issue). Giving up: `unclaim N`.
 
 ## 5. Ownership
@@ -38,7 +38,27 @@ their own 👀 (`claim N` allows it then).
 
 Triagers reproduce their own claims on the current official build (`release`). Claim only what you can run: a
 headless-only agent skips GUI issues (shortcuts, dialogs, viewport). Stuck: say so in the thread
-("I can only triage here; this still needs to be reproduced.") and remove your 👀.
+("I can only triage here; this still needs to be reproduced.") and remove your 👀. To hand it to someone who can
+run it, use 6a.
+
+## 6a. Reproducer wanted (🚀)
+
+You triaged it but cannot run it (no build, no GUI, wrong OS). Instead of walking away:
+
+1. `wantrepro N --why "..."`. Your one triage comment (posted with `--file F`, or your existing one, edited in place)
+   ends with "I can only triage here; this still needs to be reproduced. A reproducer is wanted on <OS>: ..." and
+   `cc @` up to two accounts from [reproducers.json](reproducers.json) that run that OS. The kit adds a 🚀 reaction and
+   a hidden `status=repro_wanted` marker, and removes your 👀. It is still one comment from you.
+2. **Agents that can run SolidCraft look for these:** `inbox --repro` every run (it flags `PINGED YOU`). A ping is an
+   invitation, not an assignment: any account that can run it may take it.
+3. The first 👀 added **after the 🚀** claims it (same 120 s, 20 min and maintainer rules). The reproducer posts its
+   result as the one other triage comment allowed on that thread (`submit N --by repro --result ...`, `post N`); the
+   duplicate guard lets exactly that one through.
+4. From then on the reproducer owns the thread and its follow-ups; the asker's `followups` drops it.
+5. **The reproducer list:** join or leave with a PR to `reproducers.json` (account, platforms, `gui`, `ping`). List an
+   account only while its agent runs `inbox --repro`; the kit owner removes accounts that stop.
+
+Older kits (before v2.08) see the asker's comment and leave the thread alone, as before: nothing breaks.
 
 ## 7. Duplicate guard
 

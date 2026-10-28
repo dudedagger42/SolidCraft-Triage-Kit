@@ -4,6 +4,8 @@
     python -X utf8 kit/triage.py claim N                     MULTI: react with the claim emoji; keep it only if yours is the earliest valid one
     python -X utf8 kit/triage.py unclaim N                   MULTI: remove your claim (gave up, or stuck)
     python -X utf8 kit/triage.py note N --reproducing 0.25.1 MULTI: the short 'Reproducing on <version>' note (keeps a claim past 30 min)
+    python -X utf8 kit/triage.py wantrepro N --why "..." [--file F]   MULTI: you cannot run it; ask a listed reproducer (MULTI.md 6a)
+    python -X utf8 kit/triage.py inbox --repro               MULTI: threads asking for a reproducer, for agents that can run SolidCraft
     python -X utf8 kit/triage.py next [--limit 10]           SOLO: untouched reports, newest first
     python -X utf8 kit/triage.py case N                      build the case file (thread, attachments, duplicate candidates, environment)
     python -X utf8 kit/triage.py prompt N                    the checklist prompt for the case -> state/cases/N.prompt.md
@@ -58,6 +60,8 @@ POSTABLE = {"duplicate", "needs_info", "feature_note", "support_answer", "kernel
 REPRO_ONLY = {"reproduced", "not_reproduced", "could_not_test"}
 BANDS = [(1, 2, "one person"), (3, 4, "few"), (5, 6, "some"), (7, 8, "many"), (9, 10, "everyone")]
 CANT_RUN = "I can only triage here; this still needs to be reproduced."
+REPRO_WANTED = "repro_wanted"  # marker status on a triage comment whose account could not run it (MULTI.md section 6a)
+REPRODUCERS = os.path.join(ROOT, "reproducers.json")
 
 
 # ---------------------------------------------------------------- plumbing
@@ -144,7 +148,8 @@ def header():
 
 
 def wrap(text, status=None):
-    """Header + text + hidden marker. The marker carries the kit version (and `status=reproducing` on a claim note)."""
+    """Header + text + hidden marker. The marker carries the kit version (and `status=reproducing` on a claim note,
+    `status=repro_wanted` on a could-not-run comment that asks for a reproducer)."""
     t = HEADER_RE.sub("", text.strip(), count=1).strip() if text.lstrip().startswith("**") else text.strip()
     mark = MARKER if not status else MARKER.replace(" -->", f" status={status} -->")
     return f"{header()} {t}\n\n{mark}"
@@ -223,8 +228,37 @@ def linked_prs(n):
     return out
 
 
+def reactions(n, content):
+    return ghj("api", f"repos/{REPO}/issues/{n}/reactions?content={content}&per_page=100")
+
+
 def eyes(n):
-    return ghj("api", f"repos/{REPO}/issues/{n}/reactions?content={CFG['claim_reaction']}&per_page=100")
+    return reactions(n, CFG["claim_reaction"])
+
+
+def repro_wanted(cs):
+    """MULTI.md 6a: the thread's first triage comment says its account could not run the report (status=repro_wanted).
+    Returns (that comment, the first triage comment from another account after it, or None); None if not such a thread."""
+    tri = [c for c in cs if is_triage(c["body"])]
+    m = MARKER_RE.search(tri[0]["body"] or "") if tri else None
+    if not (m and m.group(2) == REPRO_WANTED):
+        return None
+    owner = tri[0]["author"]["login"]
+    return tri[0], next((c for c in tri[1:] if c["author"]["login"] != owner), None)
+
+
+def reproducers():
+    return (jload(REPRODUCERS, {}) or {}).get("reproducers", [])
+
+
+def pick_reproducers(n, os_text, exclude, k=2):
+    """Up to k listed reproducers that run the reporter's OS and accept pings, rotated by issue number."""
+    o = (os_text or "").lower()
+    fam = ("windows" if "windows" in o else "macos" if re.search(r"mac|darwin", o) else
+           "linux" if re.search(r"linux|ubuntu|fedora|arch|debian", o) else None)
+    rows = [r for r in reproducers() if r.get("ping") and r["account"] not in exclude and (not fam or fam in r.get("platforms", []))]
+    rows = rows[n % len(rows):] + rows[: n % len(rows)] if rows else []
+    return [r["account"] for r in rows[:k]]
 
 
 def claim_state(n, d=None):
@@ -249,8 +283,13 @@ def claim_state(n, d=None):
         return {**res, "reason": f"linked PR: {prs}"}
     tri = [c for c in cs if is_triage(c["body"])]
     since = None
-    if tri:
-        owner = tri[0]["author"]["login"]
+    rw = repro_wanted(cs)
+    if rw and not rw[1] and rw[0]["author"]["login"] != me():  # 6a: its owner could not run it; a reproducer may claim
+        wanter = rw[0]["author"]["login"]
+        rockets = [r["created_at"] for r in reactions(n, CFG["repro_wanted_reaction"]) if r["user"]["login"] == wanter]
+        since, res["repro"] = (min(rockets) if rockets else rw[0]["createdAt"]), True
+    elif tri:
+        owner = rw[1]["author"]["login"] if rw else tri[0]["author"]["login"]
         own_last = max(c["createdAt"] for c in cs if c["author"]["login"] == owner)
         later = [c for c in cs if c["createdAt"] > own_last and c["author"]["login"] not in BOTS | {owner}]
         if owner == me():
@@ -273,11 +312,13 @@ def claim_state(n, d=None):
         res["mine_id"] = next((i for t, u, i in valid if u == me()), None)
     res["ok"] = not valid or res["mine"]
     res["reason"] = (f"claimed by {res['holder']}" if valid and not res["mine"] else "yours" if valid else
-                     "free (takeover)" if res["takeover"] else "free")
+                     "free (takeover)" if res["takeover"] else "free (reproducer wanted)" if res.get("repro") else "free")
     return res
 
 
 def cmd_inbox(a):
+    if a.repro:
+        return inbox_repro(a)
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=a.hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search", f"created:>={since}",
                 "--json", "number,title,labels,comments,author,createdAt")
@@ -295,6 +336,73 @@ def cmd_inbox(a):
                 break
         time.sleep(0.5)
     say(f"{shown} claimable shown. Claim one (`claim N`) BEFORE any model work.")
+
+
+def inbox_repro(a):
+    """MULTI.md 6a: threads whose triage account could not run the report and asked for a reproducer."""
+    items = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "300", "--search", '"still needs to be reproduced" in:comments',
+                "--json", "number,title,labels,comments")
+    shown = 0
+    for i in sorted(items, key=lambda x: x["number"]):
+        rw = repro_wanted(i["comments"])
+        if not rw or rw[1] or rw[0]["author"]["login"] == me() or {l["name"] for l in i["labels"]} & set(CFG["skip_labels"]):
+            continue
+        st = claim_state(i["number"])
+        if st["ok"]:
+            pinged = re.search(rf"@{re.escape(me())}\b", rw[0]["body"] or "", re.I)
+            say(f"#{i['number']} {i['title'][:80]}  (asked by {rw[0]['author']['login']}; {st['reason']})" + ("  | PINGED YOU" if pinged else ""))
+            shown += 1
+            if shown >= a.limit:
+                break
+        time.sleep(0.5)
+    say(f"{shown} wanting a reproducer. Take one only if you can run it: `claim N`, reproduce (docs/reproducing.md), "
+        "`submit N --by repro --result ...`, `post N`.")
+
+
+def cmd_wantrepro(a):
+    """MULTI.md 6a: you could not run it. Your one comment says so and asks a listed reproducer; the reaction marks it."""
+    d = issue_live(a.n)
+    rw = repro_wanted(d["comments"])
+    if rw and rw[0]["author"]["login"] != me():
+        sys.exit(f"#{a.n}: {rw[0]['author']['login']} already asked for a reproducer here")
+    others = [c for c in d["comments"] if is_triage(c["body"]) and c["author"]["login"] != me()]
+    if others and not rw:
+        sys.exit(f"#{a.n}: {others[0]['author']['login']} owns the thread; leave it to them")
+    case = jload(os.path.join(CASES, f"{a.n}.json"), {}) or {}
+    os_text = ((case.get("environment") or {}).get("os") or a.os or "").strip()
+    pings = pick_reproducers(a.n, os_text, {me(), d["author"]["login"]}, a.pings)
+    ask = (f"{CANT_RUN} A reproducer is wanted{' on ' + os_text if os_text else ''}: an agent that can run "
+           f"the current official build may claim this with 👀 and post the result.")
+    if pings:
+        ask += " cc " + " ".join("@" + p for p in pings)
+    rows = [c for c in ghj("api", f"repos/{REPO}/issues/{a.n}/comments?per_page=100") if c["user"]["login"] == me() and is_triage(c["body"])]
+    if rows:
+        body = MARKER_RE.sub("", HEADER_RE.sub("", rows[0]["body"], count=1)).strip()
+        body = re.sub(r"\s*" + re.escape(CANT_RUN) + r".*\Z", "", body, flags=re.S).strip()
+        edit_comment(a.n, rows[0]["id"], f"{body}\n\n{ask}" if body else ask, a.why, status=REPRO_WANTED)
+    elif a.file:
+        text = open(a.file, encoding="utf-8").read().strip()
+        v = [x for x in lint_comment(text, "first", case or None) if x["severity"] == "block"]
+        if v:
+            show(v)
+            sys.exit("REJECTED: fix the text")
+        post_comment(a.n, f"{text}\n\n{ask}", status=REPRO_WANTED, d=d, extra={"verdict": "repro_wanted"})
+    else:
+        sys.exit(f"#{a.n}: you have no triage comment here; pass --file with your triage text (the ask is appended)")
+    if not dry_run():
+        if not any(r["user"]["login"] == me() for r in reactions(a.n, CFG["repro_wanted_reaction"])):
+            gh("api", f"repos/{REPO}/issues/{a.n}/reactions", "-X", "POST", "-f", f"content={CFG['repro_wanted_reaction']}")
+        for r in eyes(a.n):
+            if r["user"]["login"] == me():
+                gh("api", f"repos/{REPO}/issues/{a.n}/reactions/{r['id']}", "-X", "DELETE")
+        q = jload(os.path.join(QUEUE, f"{a.n}.json"))
+        if q:
+            q["status"] = "REPRO-WANTED"
+            jsave(os.path.join(QUEUE, f"{a.n}.json"), q)
+    jl_append(os.path.join(LOGS, "claims.jsonl"), {"ts": now(), "issue": a.n, "event": "repro_wanted", "pings": pings, "why": a.why})
+    say(f"#{a.n}: reproducer wanted ({CFG['repro_wanted_reaction']} reaction)"
+        f"{'; pinged ' + ', '.join(pings) if pings else '; no listed reproducer to ping'}. "
+        "Your 👀 is gone; the thread stays yours until a reproducer posts.")
 
 
 def cmd_claim(a):
@@ -898,6 +1006,10 @@ def cmd_post(a):
     if {l["name"] for l in d["labels"]} & set(CFG["skip_labels"]):
         sys.exit("issue carries a skip label now (claimed, in progress or kernel-paused): nothing posted")
     others = [c for c in d["comments"] if is_triage(c["body"]) and c["author"]["login"] != me()]
+    rw = repro_wanted(d["comments"])
+    if (others and rw and q["by"] == "repro" and (not rw[1] or rw[1]["author"]["login"] == me())
+            and all(c["author"]["login"] == rw[0]["author"]["login"] for c in others)):
+        others = []  # MULTI.md 6a: the owner asked for a reproducer; the reproduction is the one other comment allowed
     if others:
         sys.exit(f"duplicate guard: {others[0]['author']['login']} already posted a triage comment here; it owns the thread")
     newer = [c for c in d["comments"] if c["createdAt"] > case["built_at"] and c["author"]["login"] not in BOTS | {me()}]
@@ -957,6 +1069,9 @@ def cmd_followups(a):
         mine = [k for k, c in enumerate(cs) if c["author"]["login"] == me() and is_triage(c["body"])]
         if not mine:
             continue
+        rw = repro_wanted(cs)
+        if rw and rw[1] and rw[0]["author"]["login"] == me():
+            continue  # MULTI.md 6a: a reproducer posted; the thread and its follow-ups are theirs now
         after = [c for c in cs[mine[-1] + 1:] if c["author"]["login"] not in BOTS | {me()}]
         if not after or st.get(str(i["number"])) == after[-1]["createdAt"]:
             continue
@@ -1226,7 +1341,10 @@ def main():
 
     N = (["n"], dict(type=int))
     BY = (["--by"], dict(default="first", choices=sorted(PROFILES)))
-    add("inbox", cmd_inbox, (["--limit"], dict(type=int, default=10)), (["--hours"], dict(type=float, default=96)))
+    add("inbox", cmd_inbox, (["--limit"], dict(type=int, default=10)), (["--hours"], dict(type=float, default=96)),
+        (["--repro"], dict(action="store_true", help="threads that asked for a reproducer (MULTI.md 6a)")))
+    add("wantrepro", cmd_wantrepro, N, (["--why"], dict(required=True)), (["--file"], {}), (["--os"], {}),
+        (["--pings"], dict(type=int, default=2)))
     add("claim", cmd_claim, N)
     add("unclaim", cmd_unclaim, N, (["--why"], {}))
     add("note", cmd_note, N, (["--reproducing"], dict(required=True, metavar="VERSION")))

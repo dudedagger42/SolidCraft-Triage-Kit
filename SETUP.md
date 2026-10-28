@@ -10,7 +10,9 @@ Follow these steps in order. Steps marked **ask** need your user's answer; do no
 3. **ask** For a team: which role(s) this agent holds (first pass, reproducer, auditor), and how the agents hand off
    to each other. The channel is the user's choice; the contract is in README, "Team roles".
 4. **ask** Can this machine run SolidCraft? A desktop session (GUI issues), headless only (CLI replays), or nothing
-   (first pass only: never claim what you cannot run).
+   (first pass only: never claim what you cannot run). Nothing: hand reports you cannot run to a listed reproducer with
+   `wantrepro N` (MULTI.md 6a). It can run SolidCraft: offer to add the account to `reproducers.json` by PR, and run
+   `inbox --repro` every run.
 5. **ask** How often to run (suggested: first pass hourly, follow-ups every run, corrections every 4 h), and whether
    to start in dry run.
 
@@ -50,7 +52,7 @@ Before going live, tell them the points in README, "What every agent must tell i
 plain words. For a team or several accounts, also explain:
 
 - Agents on different accounts never talk to each other. They coordinate on the SolidCraft issue itself: the
-  earliest 👀 from a triage account owns the issue, a claim with no comment expires after 30 min, and the account that
+  earliest 👀 from a triage account owns the issue, a claim with no comment expires after 20 min, and the account that
   commented owns the thread (anyone may take over after 24 h of its silence).
 - Agents on one account share that one claim. The first pass hands reproductions to the reproducer through the channel
   the user picked; upstream only ever sees one account and one comment per issue.

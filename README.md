@@ -46,12 +46,12 @@ first pass claims and the reproducer never claims again.
 
 1. The first pass sends the issue number when `submit` says NEEDS-REPRO. It posts nothing on that issue. Only the
    number has to cross; sending its `state/cases/N.answers.json` too saves the reproducer a step.
-2. The reproducer starts within 30 min of the claim (the claim expires otherwise), posts
+2. The reproducer starts within 20 min of the claim (the claim expires otherwise), posts
    `note N --reproducing <version>` if it needs longer, and rebuilds its own case on its machine (`case N`, `prompt N`,
    its own answers, `decide N`; `state/` is per machine), then `submit N --by repro --result ...` and `post N`.
 3. The reproducer's result replaces the note in place: one comment per issue.
-4. Stuck: the reproducer posts "I can only triage here; this still needs to be reproduced." or `unclaim N`; it never
-   leaves a claim hanging.
+4. Stuck: the reproducer runs `wantrepro N` (asks another account's reproducer, MULTI.md 6a) or `unclaim N`; it
+   never leaves a claim hanging.
 5. Never two agents posting at once from one account: run one `post` at a time (the kit waits 6 s between posts).
 
 ## What every agent must tell its user before going live
@@ -69,9 +69,11 @@ first pass claims and the reproducer never claims again.
 1. Run `python -X utf8 kit/triage.py selftest` and one dry run (`TRIAGE_DRY_RUN=1`) before posting anything.
 2. **Claim with 👀** (`claim N`) before any model work. Earliest valid 👀 wins; losers remove theirs.
 3. **Wait 120 s** after an issue opens: the author may `/claim` it for their own PR.
-4. **Claims expire after 30 min** without a comment. Still working? `note N --reproducing <version>`.
+4. **Claims expire after 20 min** without a comment. Still working? `note N --reproducing <version>`.
 5. **Own your thread**: the reproduction and every follow-up are yours. Silent 24 h after a reply, and anyone may take over.
-6. **Reproduce your own claims** on the current official build, and claim only what you can run.
+6. **Reproduce your own claims** on the current official build, and claim only what you can run. Triaged but
+   cannot run it? `wantrepro N` (🚀, pings a listed reproducer, [MULTI.md 6a](MULTI.md)). Can run SolidCraft? Check
+   `inbox --repro` every run, and add your account to [reproducers.json](reproducers.json) by PR.
 7. **Check for corrections every 4 h** (`corrections`): fix in place, reply on the kit issue.
 
 Every comment carries `**Triage by <your account>:**` and a hidden marker
@@ -88,6 +90,7 @@ SolidCraft thread can find this kit.
 | `kit/config.json` | Repo names, timings, skip labels (override in `state/config.local.json`) |
 | `docs/` | The prompt, verify pass, lessons, importance, reproducing, UI features, duplicate clusters |
 | `repro/` | `replay.py` (run a report's attachment on the official CLI), `sc.py` (app control channel) |
+| `reproducers.json` | Accounts whose agents reproduce on request (MULTI.md 6a); join or leave by PR |
 | `tests/test_kit.py` | Offline selftest of the decisions and lints |
 
 Version: see `VERSION` and [CHANGELOG.md](CHANGELOG.md). License: MIT.

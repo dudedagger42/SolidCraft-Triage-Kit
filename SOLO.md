@@ -34,8 +34,9 @@ passes them to the CLI.
       row, leave it for review.
    6. `post N` for AUTO-POST. REVIEW: run [docs/verify.md](docs/verify.md) in a fresh context, then `post N --approve`.
    7. NEEDS-REPRO: reproduce it yourself ([docs/reproducing.md](docs/reproducing.md)) when you can, then
-      `submit N --by repro --result reproduced|not_reproduced|could_not_test` and `post N`. If you cannot run it, post
-      nothing: it stays NEEDS-REPRO in `state/queue/` (`next` skips it) and waits for someone who can.
+      `submit N --by repro --result reproduced|not_reproduced|could_not_test` and `post N`. If you cannot run it, write
+      your triage comment and run `wantrepro N --file F --why "..."`: it asks a listed reproducer (🚀,
+      [MULTI.md 6a](MULTI.md)). If you can run SolidCraft, also check `inbox --repro` each run.
 3. Every 4 h: `corrections` (open issues on the kit repo about your account; fix in place, then reply there).
 4. Every 6 h (or after 20 posts): the self-assessment below.
 5. Stop on a 429 or 402 from your model API. No retries on another model.
