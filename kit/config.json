@@ -1,0 +1,17 @@
+{
+ "comment": "Shared settings. Per-machine overrides go in state/config.local.json (not committed), same keys.",
+ "upstream_repo": "tangency-labs/solidcraft",
+ "kit_repo": "dudedagger42/SolidCraft-Triage-Kit",
+ "bots": ["github-actions", "github-actions[bot]"],
+ "maintainers": [],
+ "maintainer_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
+ "skip_labels": ["in progress", "claimed", "kernel-paused"],
+ "kernel_pause_issue": 3992,
+ "claim_reaction": "eyes",
+ "author_window_s": 120,
+ "claim_expiry_min": 30,
+ "takeover_after_h": 24,
+ "post_gap_s": 6,
+ "comment_limit": {"first": 900, "repro": 2400, "reply": 900},
+ "correction_check_h": 4
+}

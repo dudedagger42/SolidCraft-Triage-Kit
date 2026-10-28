@@ -1,0 +1,7 @@
+state/
+builds/
+__pycache__/
+*.pyc
+*.solidcraft
+*.zip
+.env
