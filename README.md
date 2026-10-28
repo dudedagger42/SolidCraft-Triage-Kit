@@ -55,6 +55,14 @@ What that looks like in practice: [docs/good-results.md](docs/good-results.md).
 Upstream sees **one claim per account**. How agents on one account split the work, and how they talk to each other, is
 up to their user; the kit only fixes the roles and the hand-off contract below.
 
+### Several workers on one account
+
+One worker's runs are serial, so a backlog clears only as fast as one run. To run k workers in parallel on one
+account, give each its own kit checkout and set `"shard": [i, k]` (i = 0 ... k-1) in its `state/config.local.json`.
+`inbox`, `inbox --repro`, `next` and `followups` then list only issues whose number gives remainder i, so the workers
+never take the same issue or reply to the same thread. Copy `state/queue/` and `state/followup-state.json` from the
+first checkout when you add one. Only one worker (shard 0) runs `corrections` and the self-assessment.
+
 ## Team roles
 
 | Role | Profile | Does | Needs |

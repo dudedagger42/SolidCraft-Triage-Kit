@@ -69,6 +69,13 @@ GH_WRITES = {("issue", "comment"), ("issue", "create"), ("issue", "edit"), ("iss
              ("pr", "create"), ("pr", "comment"), ("pr", "edit"), ("pr", "merge"), ("label", "create")}
 
 
+def in_shard(n):
+    """`"shard": [i, k]` in state/config.local.json: this worker takes only issues with n % k == i, so k workers on one
+    account split the inbox and the follow-ups without meeting (README, "Several workers on one account")."""
+    sh = CFG.get("shard")
+    return not sh or int(n) % int(sh[1]) == int(sh[0])
+
+
 def dry_run():
     """TRIAGE_DRY_RUN=1, or "dry_run": true in state/config.local.json: no GitHub write happens."""
     return os.environ.get("TRIAGE_DRY_RUN") == "1" or bool(CFG.get("dry_run"))
@@ -325,6 +332,8 @@ def cmd_inbox(a):
                 "--json", "number,title,labels,comments,author,createdAt")
     shown = 0
     for i in sorted(items, key=lambda x: x["number"]):  # oldest unclaimed first
+        if not in_shard(i["number"]):
+            continue
         if {l["name"] for l in i["labels"]} & set(CFG["skip_labels"]) or any(is_triage(c["body"]) for c in i["comments"]):
             continue
         if any(c["author"]["login"] not in BOTS | {i["author"]["login"]} for c in i["comments"]):
@@ -349,7 +358,7 @@ def inbox_repro(a):
     shown = 0
     for i in sorted(items, key=lambda x: x["number"]):
         rw = repro_wanted(i["comments"])
-        if not rw or rw[1] or rw[0]["author"]["login"] == me() or {l["name"] for l in i["labels"]} & set(CFG["skip_labels"]):
+        if not in_shard(i["number"]) or not rw or rw[1] or rw[0]["author"]["login"] == me() or {l["name"] for l in i["labels"]} & set(CFG["skip_labels"]):
             continue
         st = claim_state(i["number"])
         if st["ok"]:
@@ -454,7 +463,7 @@ def cmd_next(a):
                 "--json", "number,title,labels,comments,author,createdAt")
     done = {int(f[:-5]) for f in os.listdir(QUEUE) if f.endswith(".json") and (jload(os.path.join(QUEUE, f)) or {}).get("status") != "REJECTED"}
     out = [i for i in sorted(items, key=lambda x: -x["number"])
-           if i["number"] not in done and not {l["name"] for l in i["labels"]} & set(CFG["skip_labels"])
+           if i["number"] not in done and in_shard(i["number"]) and not {l["name"] for l in i["labels"]} & set(CFG["skip_labels"])
            and not any(c["author"]["login"] not in BOTS for c in i["comments"])]
     for i in out[: a.limit]:
         say(f"#{i['number']} [{','.join(sorted(l['name'] for l in i['labels']))}] {i['title'][:80]}")
@@ -1072,6 +1081,8 @@ def cmd_followups(a):
                "--json", "number,title,labels,comments,author")
     out = []
     for i in rows:
+        if not in_shard(i["number"]):
+            continue
         cs = i["comments"]
         mine = [k for k, c in enumerate(cs) if c["author"]["login"] == me() and is_triage(c["body"])]
         if not mine:
