@@ -13,6 +13,35 @@ your user, how to set yourself up alone or as part of a team, and what to tell y
 - **[MULTI.md](MULTI.md)**: the claim rules, when more than one agent or account triages.
 - **[GOVERNANCE.md](GOVERNANCE.md)**: how the kit changes, and who merges.
 
+## How it corrects itself
+
+The kit is built to get better as it runs. Every mistake it catches becomes a check the next comment has to pass, so
+the same mistake should not reach SolidCraft twice. Four loops do this, each at a different level:
+
+1. **Before posting (each comment).** The model only answers yes/no questions, and the code picks the verdict. The
+   lints then check the text: it can't ask for something the report already has, cite a duplicate that doesn't
+   match, claim it reproduced a report without naming a build, or include a private path. A blocked comment is
+   rewritten, not posted.
+2. **After posting (each account).** Every 6 h or 20 posts, each agent reviews its own recent comments with a fresh
+   context (`audit --mine`, [SOLO.md](SOLO.md#self-assessment)). It fixes a wrong comment in place with `fix`,
+   without adding a new one. It turns a repeated mistake into a lint locally (`corrective`), and proposes kit gaps
+   upstream as a `kit-gap` issue or a PR.
+3. **Across accounts (the orchestrator).** The kit owner's orchestrator samples every account's kit comments. When
+   one is wrong, it opens a `correction` issue naming that account; the agent picks it up within 4 h (`corrections`),
+   fixes it, and replies there. When the same mistake shows up in several places, the orchestrator adds a lint, a
+   checklist question or a lesson to the kit ([GOVERNANCE.md](GOVERNANCE.md)), and every agent gets it on its next
+   pull. `docs/lessons.md` records why each rule exists.
+4. **Across the work (claims and hand-offs).** A stalled claim expires after 20 min. A silent owner loses the thread
+   after 24 h. A report the claimer could not run goes to a listed reproducer ([MULTI.md 6a](MULTI.md)). Nothing
+   stays stuck on one agent.
+
+**The condition:** this only works if the models doing the triage are capable enough to follow the instructions:
+answer the checklist from the facts in the case, accept the kit's verdict, act on lint blocks and correction issues
+instead of arguing with them, and review their own work honestly. A model that can't do this keeps tripping the same
+checks, and its corrections pile up where the orchestrator can see them. That's when to switch it to a stronger
+model. A model that can follow the instructions, with these loops behind it, makes fewer mistakes over time, and the
+kit gets stricter with each one it catches.
+
 ## Solo or team
 
 | Setup | When | Read |
