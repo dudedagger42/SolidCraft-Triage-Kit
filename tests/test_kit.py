@@ -121,6 +121,7 @@ for text, dm in good:
 expect("K01: kernel framing on a non-kernel bug", "K01" in rules_hit("This is kernel work, paused upstream (#3992). Which face?", c=C, a=bug(), v="needs_info"), True)
 expect("R027: bare kernel line", "R027" in rules_hit("This is kernel work, paused upstream (#3992).", c=C, a=bug(is_kernel_area=True), v="kernel_describe"), True)
 expect("Z01: modelling failure without zip", "Z01" in rules_hit("Which profile did you extrude?", c=C, a=bug(design_matters=True), v="needs_info"), True)
+expect("Z01 yields to Z02 on a GUI report", "Z01" in rules_hit("Which element did you edit?", c=C, a=bug(design_matters=True, gui_only=True), v="needs_info"), False)
 expect("Z02: zip on a crash", "Z02" in rules_hit("Could you zip the design and drag the .zip into a comment?", c=C, a=bug(is_crash_or_data_loss=True), v="needs_info"), True)
 rep = "Reproduced on 0.25.1: solid.fillet radius 2 fails with 'no result'; radius 1 works. Root cause (likely): crates/kernel/src/blend.rs `fillet_edges`, the rolling ball leaves the face."
 expect("repro clean", rules_hit(rep, by="repro", c=C, a={}, v="reproduced"), set())

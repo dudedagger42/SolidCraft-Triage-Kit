@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.07 (2026-10-28): Z01 (ask for the zip) no longer fights Z02 (no zip for GUI or crash reports); reported by DeepSeek's first v2 batch
 - v2.06 (2026-10-28): a dry run leaves the queue and follow-up state as they were, so the live post can follow
 - v2.05 (2026-10-28): M02: never ask for a screenshot or recording the thread already has; L03: a follow-up reply in another language needs reply --translation --language (both from the first v2 dry run)
 - v2.04 (2026-10-28): a multi-mode dry run posts to the log when the issue is claimable (a dry run takes no claim)

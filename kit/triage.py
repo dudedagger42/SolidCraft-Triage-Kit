@@ -758,7 +758,8 @@ def lint_comment(text, by, case=None, ans=None, verdict=None, translation=""):
                 add("N01", "warn", f"links #{x}, which is not in the case (candidates, thread, answers): check it is the issue you mean")
     if case and re.search(r"#%d|kernel work" % CFG["kernel_pause_issue"], text) and not ans.get("is_kernel_area") and verdict not in REPRO_ONLY:
         add("K01", "block", "kernel framing on a report whose failing step is not in the kernel (E9 is no)")
-    if verdict == "needs_info" and ans.get("design_matters") and not case.get("attachment_present") and not re.search(r"\bzip", text, re.I):
+    if (verdict == "needs_info" and ans.get("design_matters") and not case.get("attachment_present")
+            and not ans.get("gui_only") and not ans.get("is_crash_or_data_loss") and not re.search(r"\bzip", text, re.I)):  # Z02 wins for GUI and crashes
         add("Z01", "block", "a modelling failure with no file must ask for the design zipped (right-click, Compress to ZIP, drag the .zip into a comment)")
     if (ans.get("is_crash_or_data_loss") or ans.get("gui_only") or verdict == "support_answer") and re.search(r"\bzip\b|Compress to", text, re.I):
         add("Z02", "block", "no zip request for a crash, a GUI/selection problem or a usage question")
