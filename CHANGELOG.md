@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version (`triage.py bump`); the comment marker follows it.
 
+- v2.1 (2026-10-28): SETUP.md and team roles in the README; self-assessment (audit --mine, kit-gap issues); dry run blocks every GitHub write and prints the comment; kit URL in the marker; fixes from the first blind solo and team tests
 - v2.0 (2026-10-28): first public version. The model answers a yes/no checklist and the code decides the verdict;
   MULTI.md claim rules (👀, 120 s author window, 30 min expiry, ownership, duplicate guard); kit marker in every comment;
   signature lint (the header is built from the posting account; no signature in the text); dynamic current-release

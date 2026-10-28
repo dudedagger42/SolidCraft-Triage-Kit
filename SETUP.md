@@ -23,7 +23,7 @@ python -X utf8 kit/triage.py selftest
 ```
 
 - Python 3.11+ and the GitHub CLI logged in as the posting account.
-- `state/config.local.json`: `{"mode": "solo"}` or `{"mode": "multi"}` (the default).
+- `mkdir -p state`, then `state/config.local.json`: `{"mode": "solo"}` or `{"mode": "multi"}` (the default).
 - `python -X utf8 kit/triage.py release` names the current release. If this agent reproduces: unzip that release's
   official build into `builds/upstream-<version>/`, or set `SOLIDCRAFT_CLI` to its `solidcraft-cli`.
 - `python -X utf8 kit/triage.py maintainers --refresh` (their 👀 is never a claim).
@@ -34,7 +34,15 @@ python -X utf8 kit/triage.py selftest
 
 Set `TRIAGE_DRY_RUN=1`. Every GitHub write (comments, edits, reactions, kit-repo replies) is then skipped and logged
 to `state/logs/dryrun.jsonl`; reads work as usual. Do the loop in SOLO.md on 2 or 3 real issues, end to end, through
-`post N`. Show your user each comment the kit would have posted, and the verdict. Unset it only when they approve.
+`post N` (it prints the comment it would have posted). Show your user each comment and its verdict. Unset it only when
+they approve.
+
+**No build on this machine:** you are first pass only. `appcheck` then says no solidcraft-cli was found; answer the
+`app_check` question with "not checked in the app: no build here". NEEDS-REPRO issues stay in `state/queue/` and `next`
+skips them; in multi mode `unclaim N` so an account that can run it takes it.
+
+**Two version numbers:** the kit's version (`VERSION`, v2.0, v2.1, ...) goes in the hidden comment marker; SolidCraft's
+release (`release`, for example 0.25.1) is the build you reproduce on and name in a reproduction.
 
 ## 4. Tell your user how it works
 

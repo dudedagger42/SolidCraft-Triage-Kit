@@ -23,8 +23,10 @@ passes them to the CLI.
 
 1. **Follow-ups first**: `followups`. Someone replied on a thread you own: reply (`reply N --file F --why ...`), correct
    your comment in place (`fix N`), or `handled N --why ...`. Never reply twice in a row without an answer between.
-2. `next --limit 20`. For each report, newest first:
-   1. `case N` (about a minute: the duplicate searches are paced).
+   A long backlog (an account that triaged before the kit): newest first, at most 10 per run.
+2. `next --limit 20`. Take bugs with steps or files and questions before vague reports. For each report, newest first:
+   1. `case N` (about a minute: the duplicate searches are paced). One at a time; run it in the background if your
+      commands time out at 2 min.
    2. `prompt N`, then answer the checklist in `state/cases/N.answers.json` (facts only).
    3. `decide N`: the kit prints the verdict and what the comment must do.
    4. Postable verdict: write `state/cases/N.comment.md` (and `N.translation.md` if the reporter did not write English).
@@ -33,7 +35,7 @@ passes them to the CLI.
    6. `post N` for AUTO-POST. REVIEW: run [docs/verify.md](docs/verify.md) in a fresh context, then `post N --approve`.
    7. NEEDS-REPRO: reproduce it yourself ([docs/reproducing.md](docs/reproducing.md)) when you can, then
       `submit N --by repro --result reproduced|not_reproduced|could_not_test` and `post N`. If you cannot run it, post
-      nothing: it waits for someone who can.
+      nothing: it stays NEEDS-REPRO in `state/queue/` (`next` skips it) and waits for someone who can.
 3. Every 4 h: `corrections` (open issues on the kit repo about your account; fix in place, then reply there).
 4. Every 6 h (or after 20 posts): the self-assessment below.
 5. Stop on a 429 or 402 from your model API. No retries on another model.

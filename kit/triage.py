@@ -624,7 +624,8 @@ def decide(ans, case):
     if len(case.get("crash_cluster") or []) >= 2 and not runnable:
         return "no_action", [], "same-version crash cluster: one note to the orchestrator, not one request each"
     if ans.get("sibling_already_asked"):
-        return "needs_info", [f"point to #{ans['sibling_already_asked']} where the same step was already asked about; do not ask again"], "sibling issue already asked"
+        return "needs_info", [f"point to #{ans['sibling_already_asked']} where the same step was already asked about, instead of a new question",
+                              "a modelling failure with no file still needs the zip line"], "sibling issue already asked"
     if runnable or (ans.get("has_error_text") and case.get("command_ids")):
         return "needs_repro", [], "steps, a script or a runnable file: someone must run it on the current build"
     if ans.get("is_kernel_area"):
@@ -849,7 +850,8 @@ def post_comment(n, text, status=None, d=None, by="first", extra=None):
     d = d or issue_live(n)
     if os.environ.get("TRIAGE_DRY_RUN") == "1":
         jl_append(os.path.join(LOGS, "dryrun.jsonl"), {"ts": now(), "issue": n, "text": wrap(text, status)})
-        return say(f"DRY RUN #{n}: not posted; logged to state/logs/dryrun.jsonl")
+        say(wrap(text, status))
+        return say(f"DRY RUN #{n}: the comment above was not posted; logged to state/logs/dryrun.jsonl")
     gap_wait()
     out = ghj("api", f"repos/{REPO}/issues/{n}/comments", "-X", "POST", "-F", "body=@-", inp=wrap(text, status))
     open(LASTPOST, "w").write(str(time.time()))
