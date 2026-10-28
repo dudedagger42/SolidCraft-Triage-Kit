@@ -324,13 +324,26 @@ def claim_state(n, d=None):
     return res
 
 
+def open_issues_since(hours):
+    """Open issues created in the last `hours`. GitHub search returns at most 1000 results (1,145 were open from the
+    last 96 h on 2026-10-28), so this asks one day at a time."""
+    t = dt.datetime.now(dt.timezone.utc)
+    iso = lambda x: x.strftime("%Y-%m-%dT%H:%M:%SZ")
+    items, cut = {}, t - dt.timedelta(hours=hours)
+    while cut < t:
+        end = min(cut + dt.timedelta(hours=24), t)
+        for i in ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search",
+                     f"created:{iso(cut)}..{iso(end)}", "--json", "number,title,labels,comments,author,createdAt"):
+            items[i["number"]] = i
+        cut = end
+    return list(items.values())
+
+
 def cmd_inbox(a):
     if a.repro:
         return inbox_repro(a)
-    since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=a.hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    items = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search", f"created:>={since}",
-                "--json", "number,title,labels,comments,author,createdAt")
     t = dt.datetime.now(dt.timezone.utc)
+    items = open_issues_since(a.hours)
     age = lambda i: (t - dt.datetime.fromisoformat(i["createdAt"].replace("Z", "+00:00"))).total_seconds() / 60
     lo = a.min_age_min if a.min_age_min is not None else CFG.get("inbox_min_age_min", 0)
     hi = a.max_age_min if a.max_age_min is not None else CFG.get("inbox_max_age_min")
@@ -476,9 +489,7 @@ def cmd_note(a):
 
 # ---------------------------------------------------------------- next (SOLO)
 def cmd_next(a):
-    since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=a.hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    items = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1500", "--search", f"created:>={since}",
-                "--json", "number,title,labels,comments,author,createdAt")
+    items = open_issues_since(a.hours)
     done = {int(f[:-5]) for f in os.listdir(QUEUE) if f.endswith(".json") and (jload(os.path.join(QUEUE, f)) or {}).get("status") != "REJECTED"}
     out = [i for i in sorted(items, key=lambda x: -x["number"])
            if i["number"] not in done and in_shard(i["number"]) and not {l["name"] for l in i["labels"]} & set(CFG["skip_labels"])
@@ -1096,7 +1107,7 @@ FSTATE = os.path.join(STATE, "followup-state.json")
 
 def cmd_followups(a):
     st = jload(FSTATE, {})
-    rows = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "600", "--search", f"commenter:{me()}",
+    rows = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search", f"commenter:{me()} sort:updated-desc",  # a reply updates the thread; 1,843 open on 2026-10-28
                "--json", "number,title,labels,comments,author")
     out = []
     for i in rows:
