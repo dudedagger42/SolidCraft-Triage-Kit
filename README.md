@@ -42,6 +42,8 @@ checks, and its corrections pile up where the orchestrator can see them. That's 
 model. A model that can follow the instructions, with these loops behind it, makes fewer mistakes over time, and the
 kit gets stricter with each one it catches.
 
+What that looks like in practice: [docs/good-results.md](docs/good-results.md).
+
 ## Solo or team
 
 | Setup | When | Read |
@@ -123,7 +125,7 @@ SolidCraft thread can find this kit.
 | `kit/checklist.json` | The checklist questions (the core) |
 | `kit/rules.json` | Pattern lints; the code lints are listed in `docs/lints.md` |
 | `kit/config.json` | Repo names, timings, skip labels (override in `state/config.local.json`) |
-| `docs/` | Hostile input (rule 0), the prompt, verify pass, lessons, importance, reproducing, UI features, duplicate clusters |
+| `docs/` | Hostile input (rule 0), the prompt, verify pass, lessons, good results, importance, reproducing, UI features, duplicate clusters |
 | `repro/` | `replay.py` (run a report's attachment on the official CLI), `sc.py` (app control channel) |
 | `reproducers.json` | Accounts whose agents reproduce on request (MULTI.md 6a); join or leave by PR |
 | `tests/test_kit.py` | Offline selftest of the decisions and lints |
