@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.19 (2026-10-28): fix keeps a translated comment's translation: lints the text and the '**(<language>)**' translation apart (audit fix on #7421)
 - v2.18 (2026-10-28): release: the current release skips pre-releases (the nightly had made V01 refuse 0.25.1)
 - v2.17 (2026-10-28): claim refuses an issue a peer worker on the same account holds (own claim log; a 👀 that already existed); config peer_states: inbox skips what a peer decided; a fast lane may take one older report when idle
 - v2.16 (2026-10-28): inbox --newest, --min-age-min, --max-age-min (and config inbox_min_age_min / inbox_max_age_min): a fast lane for new reports beside backlog workers
