@@ -334,6 +334,8 @@ def cmd_inbox(a):
     age = lambda i: (t - dt.datetime.fromisoformat(i["createdAt"].replace("Z", "+00:00"))).total_seconds() / 60
     lo = a.min_age_min if a.min_age_min is not None else CFG.get("inbox_min_age_min", 0)
     hi = a.max_age_min if a.max_age_min is not None else CFG.get("inbox_max_age_min")
+    # "peer_states": other workers' state dirs on this account, so a report one of them decided is not decided twice
+    queues = [QUEUE] + [os.path.join(p, "queue") for p in CFG.get("peer_states", [])]
     shown = 0
     # oldest unclaimed first; --newest for a fast lane. Ages split a fast lane (new reports) from backlog workers.
     for i in sorted(items, key=lambda x: x["number"], reverse=a.newest):
@@ -343,9 +345,9 @@ def cmd_inbox(a):
             continue
         if any(c["author"]["login"] not in BOTS | {i["author"]["login"]} for c in i["comments"]):
             continue
-        q = jload(os.path.join(QUEUE, f"{i['number']}.json")) or {}
-        if q.get("status") in ("NO-ACTION", "HANDED-OFF") and not any(c["createdAt"] > (q.get("submitted_at") or "") for c in i["comments"]):
-            continue  # already decided here, and nothing new on the thread since
+        qs = [jload(os.path.join(d, f"{i['number']}.json")) or {} for d in queues]
+        if any(q.get("status") in ("NO-ACTION", "HANDED-OFF") and not any(c["createdAt"] > (q.get("submitted_at") or "") for c in i["comments"]) for q in qs):
+            continue  # already decided here or by a peer worker, and nothing new on the thread since
         st = claim_state(i["number"])
         if st["ok"] and not st["mine"]:
             say(f"#{i['number']} {i['title'][:80]}  ({st['reason']})")
@@ -423,15 +425,26 @@ def cmd_wantrepro(a):
         "Your 👀 is gone; the thread stays yours until a reproducer posts.")
 
 
+def claimed_here(n):
+    """This checkout's own claim log says it holds N. Several workers on one account share the 👀, so only the log
+    tells this worker's claim from a peer's (README, "Several workers on one account")."""
+    ev = [r["event"] for r in jl_read(os.path.join(LOGS, "claims.jsonl")) if r.get("issue") == int(n)]
+    return bool(ev) and ev[-1] == "claim"
+
+
 def cmd_claim(a):
     st = claim_state(a.n)
     if st.get("mine"):
+        if not claimed_here(a.n):
+            sys.exit(f"#{a.n}: another worker on this account holds it; skip it")
         return say(f"#{a.n}: already yours ({st['reason']})")
     if not st["ok"]:
         sys.exit(f"#{a.n}: not claimable: {st['reason']}")
     if dry_run():
         return say(f"DRY RUN #{a.n}: claimable; no reaction added")
-    gh("api", f"repos/{REPO}/issues/{a.n}/reactions", "-X", "POST", "-f", f"content={CFG['claim_reaction']}")
+    out = gh("api", "--include", f"repos/{REPO}/issues/{a.n}/reactions", "-X", "POST", "-f", f"content={CFG['claim_reaction']}")
+    if re.match(r"HTTP/\S+ 200\b", out):  # 200, not 201: the reaction already existed, so a peer worker claimed it just now
+        sys.exit(f"#{a.n}: another worker on this account claimed it a moment ago; skip it")
     time.sleep(3)
     st = claim_state(a.n)
     if not st.get("mine"):

@@ -65,8 +65,14 @@ first checkout when you add one. Only one worker (shard 0) runs `corrections` an
 
 A **fast lane** answers new reports within minutes: one worker runs `inbox --newest --max-age-min 60`, triggered when
 an issue opens (or every few minutes). The backlog workers set `"inbox_min_age_min": 60` in their
-`state/config.local.json`, so they take a new report only if the fast lane has not claimed it within the hour. Claims
-still decide any race.
+`state/config.local.json`, so they take a new report only if the fast lane has not claimed it within the hour. When no
+new report waits, the fast lane may take **one** older report per run (`inbox --newest --min-age-min 60
+--max-age-min 5760 --limit 1`), so it is free again within minutes; the backlog worker goes oldest first, so the two
+meet only at the end.
+
+Workers on one account share one 👀, so `claim` refuses an issue this checkout's own claim log does not hold ("another
+worker on this account holds it"), and an issue whose 👀 already existed when it reacted. Set `"peer_states":
+["<other checkout>/state"]` in each worker's config, so `inbox` also skips what a peer decided (no action, handed off).
 
 ## Team roles
 

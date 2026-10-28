@@ -140,6 +140,9 @@ t.CFG["shard"] = [1, 2]
 expect("shard keeps odd", [n for n in (6400, 6401, 6402, 6403) if t.in_shard(n)], [6401, 6403])
 t.CFG.pop("shard")
 expect("no shard keeps all", t.in_shard(6400), True)
+for row in ({"issue": 6400, "event": "claim"}, {"issue": 6401, "event": "claim"}, {"issue": 6401, "event": "unclaim"}):
+    t.jl_append(os.path.join(t.LOGS, "claims.jsonl"), row)
+expect("claimed here", [n for n in (6400, 6401, 6402) if t.claimed_here(n)], [6400])
 r = t.wrap("Does 0.25.1 still fail?", head=False)
 expect("reply has no header", r.startswith("Does 0.25.1 still fail?") and not t.HEADER_RE.search(r), True)
 expect("reply still marked as triage", t.is_triage(r), True)
