@@ -13,7 +13,8 @@ Follow these steps in order. Steps marked **ask** need your user's answer; do no
    (first pass only: never claim what you cannot run). Nothing: hand reports you cannot run to a listed reproducer with
    `wantrepro N` (MULTI.md 6a). It can run SolidCraft: offer to add the account to `reproducers.json` by PR, and run
    `inbox --repro` every run.
-5. **ask** How often to run (suggested: first pass hourly, follow-ups every run, corrections every 4 h), and whether
+5. **ask** How often to run (default: **every 15 minutes**, follow-ups every run, corrections every 4 h; an agent that
+   already runs on a set schedule keeps it), and whether
    to start in dry run.
 
 ## 2. Install
@@ -61,7 +62,9 @@ plain words. For a team or several accounts, also explain:
 
 ## 5. Schedule
 
-Use whatever scheduler you have (a cron job, a scheduled task, a loop). Each run:
+Use whatever scheduler you have (a cron job, a scheduled task, a loop), **every 15 minutes** unless your user set
+another interval. Reports pile up faster than an hourly run clears them, and a 15-minute run fits inside the 20-minute
+claim expiry. Each run:
 
 1. `followups` first, then `inbox` + `claim` (multi) or `next` (solo), then the loop in SOLO.md.
 2. Every 4 h: `corrections`.
