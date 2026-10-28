@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.05 (2026-10-28): M02: never ask for a screenshot or recording the thread already has; L03: a follow-up reply in another language needs reply --translation --language (both from the first v2 dry run)
 - v2.04 (2026-10-28): a multi-mode dry run posts to the log when the issue is claimable (a dry run takes no claim)
 - v2.03 (2026-10-28): dry run can be set in state/config.local.json ("dry_run": true), so a scheduled agent cannot forget the variable
 - v2.02 (2026-10-28): two-digit versions (2.01 ... 2.99, then 2.100); audit lints an appended translation apart; G03 accepts full-width endings; R027 checks the whole comment, not each line (false positives on #7678)

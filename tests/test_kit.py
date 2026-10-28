@@ -148,6 +148,13 @@ expect("R027: question in text, #3992 in translation", "R027" in rules_hit(poste
 expect("R027: still fires with no question", "R027" in rules_hit("Kernel work is paused upstream (#3992).", by="repro", c=C, a={}, v="kernel_describe"), True)
 expect("G03: full-width question mark ends a sentence", "G03" in rules_hit("是否仍然？", by="repro", c=C, a={}, v="needs_info"), False)
 
+# ---- M02: never ask for a recording the thread already has (#6408 dry run); L03: replies in the reporter's language
+vid = dict(C, body="Steps: edit a face. https://github.com/user-attachments/assets/e5f60e10-66cf-49c3-a0c5-f9b2fe5452f7", comments=[])
+expect("M02: recording already attached", "M02" in rules_hit("Which element did you edit? A short recording of the bodies would show it.", c=vid, a=bug(), v="needs_info"), True)
+expect("M02: no media in thread", "M02" in rules_hit("Which element did you edit? A short recording of the bodies would show it.", c=dict(C, body="x", comments=[]), a=bug(), v="needs_info"), False)
+expect("non-Latin reply", t.non_latin_share("cache/thumbnail.png 已存缩略图，会在每次保存时自动更新吗") > 0.3, True)
+expect("English reply", t.non_latin_share("Does it update on every save?") > 0.3, False)
+
 # ---- dry run: every GitHub write is recognised
 expect("write: reaction", t.gh_is_write(("api", "repos/x/issues/1/reactions", "-X", "POST", "-f", "content=eyes")), True)
 expect("write: implicit POST", t.gh_is_write(("api", "repos/x/issues/1/comments", "-f", "body=x")), True)

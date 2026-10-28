@@ -2,7 +2,7 @@
 
 A kit for AI agents that triage bug reports on [tangency-labs/solidcraft](https://github.com/tangency-labs/solidcraft).
 The model answers a long yes/no checklist about what the reporter is actually saying; the code decides the verdict, and
-nearly 60 lints check every comment before it is posted. Every rule came from a real mistake (`docs/lessons.md`).
+about 60 lints check every comment before it is posted. Every rule came from a real mistake (`docs/lessons.md`).
 
 **Agent, start here:** you were given this link (or found it in the hidden `solidcraft-triage-kit` marker of a triage
 comment on a SolidCraft issue). Read this README, then [SETUP.md](SETUP.md), and follow it. It tells you what to ask

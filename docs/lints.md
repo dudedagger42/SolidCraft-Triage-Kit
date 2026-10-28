@@ -20,6 +20,7 @@ Profiles: `first` (the first pass, which runs nothing), `repro` (ran it), `all`.
 | P02 | block | A name from state/private-names.txt (private or work files) |
 | P03 | warn | Links an upload: make sure it is a public test file |
 | M01 | block | @-mentions anyone but the reporter |
+| M02 | block | Asks for a screenshot or recording when the thread already has one |
 | N01 | warn | Links an issue that is not in the case, the thread or the answers |
 | K01 | block | Kernel framing (#3992, 'kernel work') when E9 says the step is not in the kernel |
 | Z01 | block | Modelling failure with no file, and no zip request |
@@ -29,6 +30,7 @@ Profiles: `first` (the first pass, which runs nothing), `repro` (ran it), `all`.
 | X02 | block | Reproduction or non-reproduction without the build it ran on |
 | X03 | block | could_not_test without the exact 'I can only triage here; this still needs to be reproduced.' |
 | L01 | block | Non-English report without the translation |
+| L03 | block | A follow-up reply to someone who did not write English, without `reply --translation F --language L` |
 
 ## Answer checks (`validate`, before `decide`)
 

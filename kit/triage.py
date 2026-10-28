@@ -722,6 +722,9 @@ def lint_comment(text, by, case=None, ans=None, verdict=None, translation=""):
             case[val] = True
     for x in grammar_lints(text):
         add(*x)
+    thread = (case.get("body") or "") + " " + " ".join((c or {}).get("body", "") for c in case.get("comments") or [] if isinstance(c, dict))
+    if IMG.search(thread) and re.search(r"\b(a|an|another|short|new)\s+(\w+\s+){0,2}(recording|video|screenshots?|screen ?shots?|screencast|gif|clip)\b", text, re.I):
+        add("M02", "block", "asks for a screenshot or recording, but the thread already has one: open it (image_files), or ask for something else")
     full = text + "\n\n" + translation
     cur = latest_release()
     for s in re.split(r"(?<=[.?!])\s+", full):
@@ -964,6 +967,12 @@ def cmd_followups(a):
     say(f"{len(out)} follow-up(s) on threads you own -> state/followups.json")
 
 
+def non_latin_share(s):
+    """Share of letters outside Latin script (CJK, Cyrillic, Arabic, ...): a reply in another language."""
+    letters = [ch for ch in re.sub(r"`[^`]*`|https?://\S+|> .*", "", s or "") if ch.isalpha()]
+    return sum(1 for ch in letters if ord(ch) > 0x024F) / len(letters) if letters else 0.0
+
+
 def followup_entry(n):
     e = next((r for r in jload(os.path.join(STATE, "followups.json"), []) if r["number"] == n), None)
     if not e:
@@ -974,9 +983,15 @@ def followup_entry(n):
 def cmd_reply(a):
     e = followup_entry(a.n)
     text = open(a.file, encoding="utf-8").read().strip()
-    v = [x for x in lint_comment(text, a.by, jload(os.path.join(CASES, f"{a.n}.json"))) if x["severity"] == "block"]
+    tr = open(a.translation, encoding="utf-8").read().strip() if a.translation else ""
+    v = [x for x in lint_comment(text, a.by, jload(os.path.join(CASES, f"{a.n}.json")), translation=tr) if x["severity"] == "block"]
     if len(text) > CFG["comment_limit"]["reply"]:
         v.append({"rule": "T03", "severity": "block", "message": f"reply is {len(text)} chars (limit {CFG['comment_limit']['reply']})"})
+    theirs = " ".join(r.get("body", "") for r in e.get("replies") or [])
+    if non_latin_share(theirs) > 0.3 and not (tr and a.language):
+        v.append({"rule": "L03", "severity": "block", "message": "they did not write in English: add --translation F --language \"<language>\" (the same reply in their language)"})
+    if tr and a.language:
+        text = f"{text}\n\n**({a.language})** {tr}"
     if v:
         show(v)
         sys.exit("REJECTED: fix the reply")
@@ -1219,7 +1234,8 @@ def main():
     add("post", cmd_post, N, (["--approve"], dict(action="store_true")))
     add("fix", cmd_fix, N, (["--file"], dict(required=True)), (["--why"], dict(required=True)), BY, (["--comment-id"], dict(type=int, dest="comment_id")))
     add("followups", cmd_followups)
-    add("reply", cmd_reply, N, (["--file"], dict(required=True)), (["--why"], dict(required=True)), BY)
+    add("reply", cmd_reply, N, (["--file"], dict(required=True)), (["--why"], dict(required=True)), BY,
+        (["--translation"], {}), (["--language"], {}))
     add("handled", cmd_handled, N, (["--why"], dict(required=True)))
     add("corrections", cmd_corrections, (["--reply"], dict(type=int)), (["--file"], {}))
     add("audit", cmd_audit, (["--hours"], dict(type=float, default=6)), (["--per"], dict(type=int, default=3)),
