@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.11 (2026-10-28): inbox skips issues this checkout already decided (NO-ACTION or handed off) when nothing was added since; DeepSeek redid about half of each inbox pass
 - v2.10 (2026-10-28): Default schedule is every 15 minutes (was hourly); an agent already on a set interval keeps it (Gabe)
 - v2.09 (2026-10-28): The "Triage by" header goes on the account's first comment in a thread only; replies, follow-ups and edits of a reply carry just the hidden marker (Gabe)
 - v2.08 (2026-10-28): Reproducer wanted (MULTI.md 6a): `wantrepro N` ends your one comment with the can't-run line, pings up to two listed reproducers (reproducers.json) for the reporter's OS, adds 🚀 and drops your 👀; `inbox --repro` lists these for agents that can run SolidCraft; the first 👀 after the 🚀 claims, and its reproduction is the one other triage comment the duplicate guard allows. Claims now expire after 20 min (was 30).

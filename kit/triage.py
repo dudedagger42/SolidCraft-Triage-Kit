@@ -329,6 +329,9 @@ def cmd_inbox(a):
             continue
         if any(c["author"]["login"] not in BOTS | {i["author"]["login"]} for c in i["comments"]):
             continue
+        q = jload(os.path.join(QUEUE, f"{i['number']}.json")) or {}
+        if q.get("status") in ("NO-ACTION", "HANDED-OFF") and not any(c["createdAt"] > (q.get("submitted_at") or "") for c in i["comments"]):
+            continue  # already decided here, and nothing new on the thread since
         st = claim_state(i["number"])
         if st["ok"] and not st["mine"]:
             say(f"#{i['number']} {i['title'][:80]}  ({st['reason']})")
