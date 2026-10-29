@@ -601,6 +601,13 @@ def cmd_case(a):
             rows = []
         ver = lambda t: (re.search(r"SolidCraft (\d+\.\d+)", t) or [None, None])[1]
         crash_cluster = [{"number": r["number"], "title": r["title"][:80]} for r in rows if r["number"] != n and ver(r["title"]) == ver(d["title"])]
+    # a crash report's own leads: the reporter's steps (each "## Reproduction" up to the app's "Crash report `...`" text)
+    # and a real backtrace. Either one takes the report out of the quiet crash cluster (Gabe, 2026-10-29: #8308, #8466).
+    crash_user_steps = [t for t in (re.split(r"Crash report `|Only attach the design", s)[0].strip()
+                                    for s in re.findall(r"^## Reproduction\s*\n(.*?)(?=^## |\Z)", body, re.M | re.S))
+                        if t and t.lower().rstrip(".") not in ("not provided", "none", "n/a", "-")] if d["title"].startswith("Crash:") else []
+    bt = re.search(r"^## Backtrace\s*\n(.*?)(?=^## |\Z)", body, re.M | re.S)
+    crash_backtrace = bool(d["title"].startswith("Crash:") and bt and re.search(r"\bat \S|0x[0-9A-Fa-f]{6,}", bt.group(1)))
     envm = lambda pat: (lambda m: m.group(1).split("\\n")[0].strip() if m else None)(re.search(pat, body))
     environment = {"version": envm(r"SolidCraft (\d+\.\d+\.\d+)"), "os": envm(r"OS: ([^\n]+)") or envm(r"SolidCraft \d+\.\d+\.\d+ \([^)]*\), ([^\n]+)"),
                    "renderer": envm(r"Renderer: ([^\n]+)"), "note": "from the report's Environment block; never ask for anything listed here"}
@@ -608,6 +615,7 @@ def cmd_case(a):
         "built_at": now(), "kit_version": VERSION, "number": n, "url": d["url"], "title": d["title"], "state": d["state"],
         "labels": [l["name"] for l in d["labels"]], "author": d["author"]["login"], "created_at": d["createdAt"],
         "environment": environment, "current_release": latest_release(), "bot_asked": bot_asked, "crash_cluster": crash_cluster,
+        "crash_user_steps": crash_user_steps, "crash_backtrace": crash_backtrace,
         "image_files": [] if a.no_images else download_images(n, [body] + [c["body"] for c in d["comments"]]),
         "body": body[:6000], "comments": comments, "attachments": atts, "attachment_present": bool(atts),
         "error_texts": errs, "command_ids": sorted(set(re.findall(r'"((?:solid|sketch|sheet|surface|timeline|component|joint|inspect|construct)\.[a-z_.]+)"', body))),
@@ -776,8 +784,10 @@ def decide(ans, case):
     if k == "unclear":
         return ("needs_info", [f"ask: {q}"], "unclear what is reported") if q else ("no_action", [], "unclear, and no pointed question")
     # a bug
-    if len(case.get("crash_cluster") or []) >= 2 and not runnable:
-        return "no_action", [], "same-version crash cluster: one note to the orchestrator, not one request each"
+    if case.get("crash_user_steps"):
+        return "needs_repro", [], "a crash report with the reporter's own steps: someone must try them on the current build"
+    if len(case.get("crash_cluster") or []) >= 2 and not runnable and not case.get("crash_backtrace"):
+        return "no_action", [], "empty same-version crash report: log it (crashes CSV), no comment"
     if ans.get("sibling_already_asked"):
         return "needs_info", [f"point to #{ans['sibling_already_asked']} where the same step was already asked about, instead of a new question",
                               "a modelling failure with no file still needs the zip line"], "sibling issue already asked"

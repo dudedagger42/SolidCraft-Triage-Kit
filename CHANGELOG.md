@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.22 (2026-10-29): crash reports: the same-version crash-cluster mute covers only empty reports; one with the reporter's own steps is needs_repro, one with a real backtrace takes the normal path (Gabe)
 - v2.21 (2026-10-28): inbox and next ask GitHub search one day at a time (search returns at most 1000; 1,145 issues were open from the last 96 h); followups reads the 1000 most recently updated threads (was 600 of 1,843)
 - v2.20 (2026-10-28): SOLO.md / SETUP.md: split each run about half and half between follow-ups and new reports (was follow-ups first, which starved new reports on a backlog) (Gabe)
 - v2.19 (2026-10-28): fix keeps a translated comment's translation: lints the text and the '**(<language>)**' translation apart (audit fix on #7421)

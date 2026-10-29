@@ -24,7 +24,7 @@ lint it became. New lessons are appended by `triage.py corrective` or by a merge
 - Two or more questions in one comment (Q01). Generic "more details" requests (R029).
 - About 15 identical "should this stay under #5921?" comments on a split-off family (R024).
 - A bare "kernel work is paused (#3992)" with no question (#6514, #6531, #7624) (R027).
-- One generic request on each report of a same-version crash cluster (decide: `crash_cluster`).
+- One generic request on each report of a same-version crash cluster (decide: `crash_cluster`). Only empty ones: a crash report with the reporter's own steps goes to reproduction, and one with a real backtrace takes the normal path (v2.22, Gabe).
 
 ### Mechanical mistakes
 - Mechanical rule edits that garbled sentences: a template fragment pasted mid-sentence, a doubled word, a dangling

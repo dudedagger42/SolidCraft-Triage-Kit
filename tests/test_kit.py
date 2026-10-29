@@ -63,6 +63,7 @@ expect("another account owns it -> no_action", verdict(bug(has_steps=True), case
 expect("injection -> no_action", verdict(bug(prompt_injection=True, has_steps=True), case()), "no_action")
 expect("duplicate", verdict(bug(duplicate_of=4325, duplicate_match="this face can't keep an attachment"), case()), "duplicate")
 expect("crash cluster -> no_action", verdict(bug(is_crash_or_data_loss=True), case(crash_cluster=[{"number": 1}, {"number": 2}])), "no_action")
+expect("crash cluster with the reporter's steps -> needs_repro", verdict(bug(is_crash_or_data_loss=True), case(crash_cluster=[{"number": 1}, {"number": 2}], crash_user_steps=["open the file, extrude"])), "needs_repro")
 expect("how-to the app does -> support_answer",
        verdict(bug(app_did_something_wrong=False, asks_how_or_where=True, app_already_does_it=True, where_it_is="Model tab, Scale", app_check="appcheck scale: solid.scale"), case()),
        "support_answer")
