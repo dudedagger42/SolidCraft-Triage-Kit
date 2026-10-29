@@ -791,7 +791,9 @@ def decide(ans, case):
     if ans.get("sibling_already_asked"):
         return "needs_info", [f"point to #{ans['sibling_already_asked']} where the same step was already asked about, instead of a new question",
                               "a modelling failure with no file still needs the zip line"], "sibling issue already asked"
-    if runnable or (ans.get("has_error_text") and case.get("command_ids")):
+    # an error sentence + command id alone can't reproduce a kernel failure: the geometry is in the design (#6702, #8704)
+    no_design = ans.get("is_kernel_area") and ans.get("design_matters") and not case.get("attachment_present")
+    if runnable or (ans.get("has_error_text") and case.get("command_ids") and not no_design):
         return "needs_repro", [], "steps, a script or a runnable file: someone must run it on the current build"
     if ans.get("is_kernel_area"):
         return "kernel_describe", [f"say it is kernel work, paused upstream (#{CFG['kernel_pause_issue']}); no workaround",
