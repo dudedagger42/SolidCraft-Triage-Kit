@@ -760,6 +760,13 @@ def klass(ans):
 
 def decide(ans, case):
     """The answers decide; the model never picks the verdict. Returns (verdict, must, why)."""
+    verdict, must, why = _decide(ans, case)
+    if ans.get("is_kernel_area") and verdict in ("needs_info", "needs_repro"):  # kernel work is triaged like any bug now (Gabe, 2026-11-04)
+        must = must + ["say the failing step is kernel work (Solidcore); link a tangency-labs/solidcore issue or PR for the same failure if one exists"]
+    return verdict, must, why
+
+
+def _decide(ans, case):
     k = klass(ans)
     runnable = ans.get("has_steps") or (case.get("attachment_present") and ans.get("attachment_is_runnable"))
     q = (ans.get("pointed_question") or "").strip()
@@ -795,9 +802,6 @@ def decide(ans, case):
     no_design = ans.get("is_kernel_area") and ans.get("design_matters") and not case.get("attachment_present")
     if runnable or (ans.get("has_error_text") and case.get("command_ids") and not no_design):
         return "needs_repro", [], "steps, a script or a runnable file: someone must run it on the current build"
-    if ans.get("is_kernel_area"):
-        return "kernel_describe", [f"say it is kernel work, paused upstream (#{CFG['kernel_pause_issue']}); no workaround",
-                                   "one pointed question, or the zip line if the design matters"], "kernel area, nothing to run"
     if case.get("bot_asked") and not q:
         return "no_action", [], "the bot already asked for steps/version/OS and you have nothing pointed to add"
     if ans.get("thread_already_has_it") and not q:
@@ -908,7 +912,7 @@ def lint_comment(text, by, case=None, ans=None, verdict=None, translation=""):
         if m.group(1) != case.get("author"):
             add("M01", "block", f"@-mentions {m.group(1)}: never ping maintainers or other accounts from a triage comment")
             break
-    known = {case.get("number")} | {x["number"] for x in case.get("dup_candidates", [])} | {CFG["kernel_pause_issue"]}
+    known = {case.get("number")} | {x["number"] for x in case.get("dup_candidates", [])}
     known |= {int(x) for x in re.findall(r"#(\d{2,5})", json.dumps(case.get("comments", [])) + case.get("body", ""))}
     if ans.get("sibling_already_asked"):
         known.add(ans["sibling_already_asked"])
@@ -918,7 +922,7 @@ def lint_comment(text, by, case=None, ans=None, verdict=None, translation=""):
         for x in re.findall(r"#(\d{2,5})\b", text):
             if int(x) not in known:
                 add("N01", "warn", f"links #{x}, which is not in the case (candidates, thread, answers): check it is the issue you mean")
-    if case and re.search(r"#%d|kernel work" % CFG["kernel_pause_issue"], text) and not ans.get("is_kernel_area") and verdict not in REPRO_ONLY:
+    if case and re.search(r"kernel work", text, re.I) and not ans.get("is_kernel_area") and verdict not in REPRO_ONLY:
         add("K01", "block", "kernel framing on a report whose failing step is not in the kernel (E9 is no)")
     if (verdict == "needs_info" and ans.get("design_matters") and not case.get("attachment_present")
             and not ans.get("gui_only") and not ans.get("is_crash_or_data_loss") and not re.search(r"\bzip", text, re.I)):  # Z02 wins for GUI and crashes
@@ -1061,7 +1065,7 @@ def cmd_post(a):
     if d["state"] != "OPEN":
         sys.exit("issue is closed now")
     if {l["name"] for l in d["labels"]} & set(CFG["skip_labels"]):
-        sys.exit("issue carries a skip label now (claimed, in progress or kernel-paused): nothing posted")
+        sys.exit("issue carries a skip label now (claimed or in progress): nothing posted")
     others = [c for c in d["comments"] if is_triage(c["body"]) and c["author"]["login"] != me()]
     rw = repro_wanted(d["comments"])
     if (others and rw and q["by"] == "repro" and (not rw[1] or rw[1]["author"]["login"] == me())

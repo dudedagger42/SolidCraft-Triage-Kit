@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.24 (2026-11-04): kernel work is triaged like any bug: the kernel-paused label is no longer skipped, decide no longer gives kernel_describe (kernel bugs ask, or go to repro, and say 'kernel work (Solidcore)' with a matching solidcore issue or PR), R027 now blocks saying kernel work is paused (#3992) (Gabe)
 - v2.23 (2026-10-29): decide: a kernel report with only an error sentence and a command id, and no design, is kernel_describe with the zip request, not needs_repro (fast-lane note on #8704; #6702)
 - v2.22 (2026-10-29): crash reports: the same-version crash-cluster mute covers only empty reports; one with the reporter's own steps is needs_repro, one with a real backtrace takes the normal path (Gabe)
 - v2.21 (2026-10-28): inbox and next ask GitHub search one day at a time (search returns at most 1000; 1,145 issues were open from the last 96 h); followups reads the 1000 most recently updated threads (was 600 of 1,843)

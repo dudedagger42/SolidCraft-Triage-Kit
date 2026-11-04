@@ -70,7 +70,7 @@ fix drops it back to every 6 h.
 
 - One comment per issue. A correction edits that comment (`fix`); the kit refuses a second one.
 - At least 6 s between posts (the kit waits).
-- Kernel bugs get a description only while #3992's pause lasts.
+- Kernel bugs are triaged like any bug and called kernel work (Solidcore), so they can go upstream.
 - Tell reporters to zip `.solidcraft` files; never ask for a file for a crash, GUI or usage report.
 - No untested workaround, no "we", no thanks, no promise, no priority in a comment.
 - Never post a private or work file, a local path, or a key.

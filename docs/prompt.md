@@ -41,7 +41,9 @@ tells you what the comment must do. Then you write the comment (if there is one)
 - Any `.solidcraft` file is requested zipped: "right-click the .solidcraft file, Compress to ZIP, and drag the .zip into a
   comment" (GitHub refuses a bare .solidcraft). Never ask for a file for a crash, a GUI problem or a usage question, and
   never ask for one that is already attached.
-- Kernel work (#3992 pause): describe only, plus one pointed question or the zip line. No workaround, no fix idea.
+- Kernel work (the failing step runs in the Solidcore kernel) is triaged like any other bug: ask, hand to repro, find the
+  cause. Say it is kernel work so it can go upstream to tangency-labs/solidcore, and link a solidcore issue or PR for the
+  same failure if one exists. Never say kernel work is paused: the pause ended with 0.40 (Gabe, 2026-11-04).
 - If the reporter did not write English, write the same comment in their language to `state/cases/<N>.translation.md`.
 
 ## Known duplicate clusters (check the live state in the case file before linking)

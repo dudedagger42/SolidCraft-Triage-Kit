@@ -78,7 +78,7 @@ worker on this account holds it"), and an issue whose 👀 already existed when 
 
 | Role | Profile | Does | Needs |
 |---|---|---|---|
-| **First pass** | `--by first` | `inbox`/`claim` (or `next`), `case`, checklist, `decide`, posts needs_info, duplicate, feature_note, support_answer, kernel_describe. Runs nothing. Hands NEEDS-REPRO issues on. | gh, Python. Any model that follows the checklist; a cheap one is fine. |
+| **First pass** | `--by first` | `inbox`/`claim` (or `next`), `case`, checklist, `decide`, posts needs_info, duplicate, feature_note, support_answer. Runs nothing. Hands NEEDS-REPRO issues on. | gh, Python. Any model that follows the checklist; a cheap one is fine. |
 | **Reproducer** | `--by repro` | Takes hand-offs, runs the attachment or steps on the current official build ([docs/reproducing.md](docs/reproducing.md)), posts reproduced, not_reproduced or could_not_test. Owns the follow-ups on threads it posted. | The official build; a desktop session for GUI issues. A strong model. |
 | **Auditor** (optional) | none | Every few hours: `audit` your own account's recent comments, `fix` mistakes in place, `corrections` from the kit repo. | gh. A strong model, in a fresh context. |
 

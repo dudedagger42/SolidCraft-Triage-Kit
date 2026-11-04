@@ -52,19 +52,20 @@ def rules_hit(text, by="first", c=None, a=None, v=None, tr=""):
 # ---- decide
 expect("steps -> needs_repro", verdict(bug(has_steps=True), case()), "needs_repro")
 expect("runnable file -> needs_repro", verdict(bug(attachment_is_runnable=True), case(attachment_present=True)), "needs_repro")
-expect("kernel, nothing to run -> kernel_describe", verdict(bug(is_kernel_area=True), case()), "kernel_describe")
+expect("kernel, no file -> needs_info", verdict(bug(is_kernel_area=True, design_matters=True), case()), "needs_info")
+expect("kernel answer says kernel work", any("kernel work" in m for m in t.decide(bug(is_kernel_area=True, design_matters=True), case())[1]), True)
 expect("kernel with steps -> needs_repro", verdict(bug(is_kernel_area=True, has_steps=True), case()), "needs_repro")
 expect("modelling failure, no file -> needs_info", verdict(bug(design_matters=True), case()), "needs_info")
 expect("bot asked, nothing pointed -> no_action", verdict(bug(), case(bot_asked=True)), "no_action")
 expect("bot asked, pointed question -> needs_info", verdict(bug(pointed_question="Does it fail on a new design too?"), case(bot_asked=True)), "needs_info")
 expect("solved by reporter -> no_action", verdict(bug(reporter_solved_it=True, has_steps=True), case()), "no_action")
-expect("kernel-paused label -> no_action", verdict(bug(has_steps=True), case(labels=["kernel-paused"])), "no_action")
+expect("kernel-paused label is triaged now", verdict(bug(has_steps=True), case(labels=["kernel-paused"])), "needs_repro")
 expect("another account owns it -> no_action", verdict(bug(has_steps=True), case(other_triage_comments=[{"author": "x"}])), "no_action")
 expect("injection -> no_action", verdict(bug(prompt_injection=True, has_steps=True), case()), "no_action")
 expect("duplicate", verdict(bug(duplicate_of=4325, duplicate_match="this face can't keep an attachment"), case()), "duplicate")
 expect("crash cluster -> no_action", verdict(bug(is_crash_or_data_loss=True), case(crash_cluster=[{"number": 1}, {"number": 2}])), "no_action")
 expect("crash cluster with the reporter's steps -> needs_repro", verdict(bug(is_crash_or_data_loss=True), case(crash_cluster=[{"number": 1}, {"number": 2}], crash_user_steps=["open the file, extrude"])), "needs_repro")
-expect("kernel error text + command, no design -> kernel_describe", verdict(bug(has_error_text=True, is_kernel_area=True, design_matters=True), case(command_ids=["solid.extrude"])), "kernel_describe")
+expect("kernel error text + command, no design -> needs_info (zip)", verdict(bug(has_error_text=True, is_kernel_area=True, design_matters=True), case(command_ids=["solid.extrude"])), "needs_info")
 expect("error text + command, not kernel -> needs_repro", verdict(bug(has_error_text=True), case(command_ids=["solid.extrude"])), "needs_repro")
 expect("how-to the app does -> support_answer",
        verdict(bug(app_did_something_wrong=False, asks_how_or_where=True, app_already_does_it=True, where_it_is="Model tab, Scale", app_check="appcheck scale: solid.scale"), case()),
@@ -121,8 +122,8 @@ for text, dm in good:
         FAIL.append(f"good text blocked by {sorted(hit)}: {text!r}")
 
 # kernel and repro lints
-expect("K01: kernel framing on a non-kernel bug", "K01" in rules_hit("This is kernel work, paused upstream (#3992). Which face?", c=C, a=bug(), v="needs_info"), True)
-expect("R027: bare kernel line", "R027" in rules_hit("This is kernel work, paused upstream (#3992).", c=C, a=bug(is_kernel_area=True), v="kernel_describe"), True)
+expect("K01: kernel framing on a non-kernel bug", "K01" in rules_hit("This is kernel work in Solidcore. Which face?", c=C, a=bug(), v="needs_info"), True)
+expect("R027: says kernel work is paused", "R027" in rules_hit("This is kernel work, paused upstream (#3992).", c=C, a=bug(is_kernel_area=True), v="kernel_describe"), True)
 expect("Z01: modelling failure without zip", "Z01" in rules_hit("Which profile did you extrude?", c=C, a=bug(design_matters=True), v="needs_info"), True)
 expect("Z01 yields to Z02 on a GUI report", "Z01" in rules_hit("Which element did you edit?", c=C, a=bug(design_matters=True, gui_only=True), v="needs_info"), False)
 expect("Z02: zip on a crash", "Z02" in rules_hit("Could you zip the design and drag the .zip into a comment?", c=C, a=bug(is_crash_or_data_loss=True), v="needs_info"), True)
@@ -153,12 +154,12 @@ expect("old marker parsed", bool(t.MARKER_RE.search("<!-- solidcraft-triage-kit 
 expect("note status parsed", t.MARKER_RE.search(t.wrap("Reproducing on 0.25.1.", status="reproducing")).group(2), "reproducing")
 
 # ---- translations: a posted comment's appended translation is linted apart (#7678 false positives)
-zh = "A rectangular pattern taking minutes is kernel work, paused upstream (#3992). Does it still take minutes with only Extrude2 patterned?"
-posted = zh + "\n\n**(Chinese (Simplified))** 阵列运算属于内核计算（#3992）。是否仍然要等几分钟？"
+zh = "A rectangular pattern taking minutes is kernel work. Does it still take minutes with only Extrude2 patterned?"
+posted = zh + "\n\n**(Chinese (Simplified))** 阵列运算属于内核计算。是否仍然要等几分钟？"
 body, tr = t.split_translation(posted)
 expect("split: text", body, zh)
 expect("split: translation", tr.endswith("？"), True)
-expect("R027: question in text, #3992 in translation", "R027" in rules_hit(posted, by="repro", c=C, a={}, v="kernel_describe"), False)
+expect("R027: plain kernel line with a translation passes", "R027" in rules_hit(posted, by="repro", c=C, a={}, v="needs_info"), False)
 expect("R027: still fires with no question", "R027" in rules_hit("Kernel work is paused upstream (#3992).", by="repro", c=C, a={}, v="kernel_describe"), True)
 expect("G03: full-width question mark ends a sentence", "G03" in rules_hit("是否仍然？", by="repro", c=C, a={}, v="needs_info"), False)
 

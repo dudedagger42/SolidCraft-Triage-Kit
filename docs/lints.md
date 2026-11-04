@@ -22,7 +22,7 @@ Profiles: `first` (the first pass, which runs nothing), `repro` (ran it), `all`.
 | M01 | block | @-mentions anyone but the reporter |
 | M02 | block | Asks for a screenshot or recording when the thread already has one |
 | N01 | warn | Links an issue that is not in the case, the thread or the answers |
-| K01 | block | Kernel framing (#3992, 'kernel work') when E9 says the step is not in the kernel |
+| K01 | block | Kernel framing ('kernel work') when E9 says the step is not in the kernel |
 | Z01 | block | Modelling failure with no file, and no zip request |
 | Z02 | block | Zip request on a crash, GUI or usage report |
 | D02/D05 | block | Duplicate comment does not link the issue, or does not say it is closed |
@@ -64,7 +64,7 @@ Every applicable checklist question answered with the right type; `app_check` fo
 | R024 | all | block | Do not ask whether a split-off request should stay under its parent: link the parent and ask a real product question, or post nothing. |
 | R025 | all | block | The Environment block already gives the OS. |
 | R026 | all | block | A triager cannot file, log or track anything. Say what the app does or ask the question. |
-| R027 | all | block | A kernel comment needs one pointed question or the zip line; 'kernel work is paused (#3992)' alone adds nothing. |
+| R027 | all | block | Says kernel work is paused (#3992, 'paused upstream'): the pause ended with 0.40. |
 | R029 | all | block | Generic request for 'more information'. Ask for ONE named thing (the design zipped, the error text, the step that fails). |
 | R030 | all | block | Priority and importance are internal. Labels and ranking belong to the maintainers. |
 | R031 | all | block | Talks about itself instead of the issue. The header already says who posted. |
