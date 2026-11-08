@@ -6,6 +6,8 @@
  "maintainers": [],
  "maintainer_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
  "skip_labels": ["in progress", "claimed"],
+ "work_item_authors": ["bherbruck", "MarkusReichart", "ChrisNourse", "jmcopp", "ablasik", "dudedagger42"],
+ "report_markers": ["## Actual behavior", "## Reproduction", "## Expected behavior", "## Operation context", "## Steps"],
  "claim_reaction": "eyes",
  "repro_wanted_reaction": "rocket",
  "author_window_s": 120,

@@ -351,10 +351,19 @@ def open_issues_since(hours):
     while cut < t:
         end = min(cut + dt.timedelta(hours=24), t)
         for i in ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search",
-                     f"created:{iso(cut)}..{iso(end)}", "--json", "number,title,labels,comments,author,createdAt"):
+                     f"created:{iso(cut)}..{iso(end)}", "--json", "number,title,labels,comments,author,createdAt,body"):
             items[i["number"]] = i
         cut = end
     return list(items.values())
+
+
+def is_work_item(i):
+    """A developer work item, not a user report: opened by one of CFG work_item_authors with none of the app's report
+    sections (report_markers). The solidcore issues moved into SolidCraft on 2026-11-08 (#13613 on) are these."""
+    if i.get("author", {}).get("login") not in CFG.get("work_item_authors", []):
+        return False
+    body = i.get("body") or ""
+    return not any(m in body for m in CFG.get("report_markers", []))
 
 
 def cmd_inbox(a):
@@ -374,6 +383,8 @@ def cmd_inbox(a):
         if not in_shard(i["number"]) or age(i) < lo or (hi is not None and age(i) > hi):
             continue
         if {l["name"] for l in i["labels"]} & set(CFG["skip_labels"]) or any(is_triage(c["body"]) for c in i["comments"]):
+            continue
+        if is_work_item(i):
             continue
         if any(c["author"]["login"] not in BOTS | {i["author"]["login"]} for c in i["comments"]):
             continue
@@ -557,7 +568,7 @@ def cmd_next(a):
     done = {int(f[:-5]) for f in os.listdir(QUEUE) if f.endswith(".json") and (jload(os.path.join(QUEUE, f)) or {}).get("status") != "REJECTED"}
     out = [i for i in sorted(items, key=lambda x: -x["number"])
            if i["number"] not in done and in_shard(i["number"]) and not {l["name"] for l in i["labels"]} & set(CFG["skip_labels"])
-           and not any(c["author"]["login"] not in BOTS for c in i["comments"])]
+           and not any(c["author"]["login"] not in BOTS for c in i["comments"]) and not is_work_item(i)]
     for i in out[: a.limit]:
         say(f"#{i['number']} [{','.join(sorted(l['name'] for l in i['labels']))}] {i['title'][:80]}")
     say(f"{len(out)} untouched in the last {a.hours:g} h (showing {min(a.limit, len(out))})")

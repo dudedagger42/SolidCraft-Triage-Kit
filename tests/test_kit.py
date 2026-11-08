@@ -328,6 +328,13 @@ expect("round start: only claim API calls", {c[0] for c in CALLS}, {"api"})
 t.gh, t.eyes, t.issue_live, t.time.sleep = saved
 
 
+# v2.26: developer work items (the solidcore issues moved in on 2026-11-08) are not inbox reports
+WI = lambda who, body: {"author": {"login": who}, "body": body}
+expect("work item: listed developer, no report sections", t.is_work_item(WI("bherbruck", "kernel_cases: a case runs past 180 s")), True)
+expect("work item: listed developer filing an app report", t.is_work_item(WI("bherbruck", "## Actual behavior" + chr(10) + "Extrude fails")), False)
+expect("work item: a user with no sections is still a report", t.is_work_item(WI("reporter1", "it crashes")), False)
+expect("work item: no body", t.is_work_item(WI("ChrisNourse", None)), True)
+
 def main():
     for f in FAIL:
         print("FAIL", f)
