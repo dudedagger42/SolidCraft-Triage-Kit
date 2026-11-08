@@ -269,8 +269,23 @@ def pick_reproducers(n, os_text, exclude, k=2):
     return [r["account"] for r in rows[:k]]
 
 
+def own_claims(rows, cs, since=None):
+    """This account's 👀 among `rows` as (live, stale). Workers on one account share the 👀, so a live one is held by
+    this checkout or a peer (only the claim log tells which). A 👀 older than claim_expiry_min with no comment from this
+    account after it has expired, whoever on the account added it. One from before `since` (the account's last comment
+    on a thread it owns, or the start of a takeover or reproducer wait) does not count either: stale, free to replace."""
+    live, stale = [], []
+    for r in rows:
+        if r["user"]["login"] != me():
+            continue
+        t = r["created_at"]
+        fresh = age_s(t) <= CFG["claim_expiry_min"] * 60 or any(c["author"]["login"] == me() and c["createdAt"] >= t for c in cs)
+        (live if fresh and not (since and t <= since) else stale).append(r)
+    return live, stale
+
+
 def claim_state(n, d=None):
-    """Who holds issue N, by MULTI.md's rules. Returns {ok, reason, holder, mine, takeover}."""
+    """Who holds issue N, by MULTI.md's rules. Returns {ok, reason, holder, mine, takeover, own_live, own_stale}."""
     d = d or issue_live(n)
     author, mt = d["author"]["login"], maintainers()
     cs = d["comments"]
@@ -301,15 +316,17 @@ def claim_state(n, d=None):
         own_last = max(c["createdAt"] for c in cs if c["author"]["login"] == owner)
         later = [c for c in cs if c["createdAt"] > own_last and c["author"]["login"] not in BOTS | {owner}]
         if owner == me():
-            return {**res, "ok": True, "holder": owner, "mine": True, "reason": "you own the thread"}
+            live, stale = own_claims(eyes(n), cs, own_last)  # a follow-up claim: a 👀 after the account's last comment
+            return {**res, "ok": True, "holder": owner, "mine": True, "reason": "you own the thread", "own_live": live, "own_stale": stale}
         if not (later and age_s(later[-1]["createdAt"]) >= CFG["takeover_after_h"] * 3600):
             return {**res, "holder": owner, "reason": f"owned by {owner} (triage comment); takeover only after {CFG['takeover_after_h']} h of their silence"}
         since, res["takeover"] = own_last, True
     commented = lambda u, t: any(c["author"]["login"] == u and c["createdAt"] >= t for c in cs)
-    valid = []
-    for r in eyes(n):
+    valid, rows = [], eyes(n)
+    for r in rows:
         u, t = r["user"]["login"], r["created_at"]
-        if u == author or u in mt or u in BOTS or (since and t <= since):
+        # the author's 👀 is not a triage claim, unless the author is this account (an issue it opened, e.g. #11997)
+        if (u == author and u != me()) or u in mt or u in BOTS or (since and t <= since):
             continue
         if age_s(t) <= CFG["claim_expiry_min"] * 60 or commented(u, t):
             valid.append((t, u, r["id"]))
@@ -319,6 +336,7 @@ def claim_state(n, d=None):
         res["mine"] = valid[0][1] == me()
         res["mine_id"] = next((i for t, u, i in valid if u == me()), None)
     res["ok"] = not valid or res["mine"]
+    res["own_live"], res["own_stale"] = own_claims(rows, cs, since)
     res["reason"] = (f"claimed by {res['holder']}" if valid and not res["mine"] else "yours" if valid else
                      "free (takeover)" if res["takeover"] else "free (reproducer wanted)" if res.get("repro") else "free")
     return res
@@ -340,6 +358,7 @@ def open_issues_since(hours):
 
 
 def cmd_inbox(a):
+    release_expired()
     if a.repro:
         return inbox_repro(a)
     t = dt.datetime.now(dt.timezone.utc)
@@ -438,23 +457,34 @@ def cmd_wantrepro(a):
         "Your 👀 is gone; the thread stays yours until a reproducer posts.")
 
 
-def claimed_here(n):
+def claimed_here(n, since=None):
     """This checkout's own claim log says it holds N. Several workers on one account share the 👀, so only the log
-    tells this worker's claim from a peer's (README, "Several workers on one account")."""
-    ev = [r["event"] for r in jl_read(os.path.join(LOGS, "claims.jsonl")) if r.get("issue") == int(n)]
-    return bool(ev) and ev[-1] == "claim"
+    tells this worker's claim from a peer's (README, "Several workers on one account"). With `since` (the account's live
+    👀), the claim must be logged after it: a 👀 added after this checkout's last claim is a peer's."""
+    ev = [r for r in jl_read(os.path.join(LOGS, "claims.jsonl")) if r.get("issue") == int(n)]
+    return bool(ev) and ev[-1]["event"] == "claim" and (not since or ev[-1]["ts"] >= since)
+
+
+def drop_reaction(n, r):
+    try:
+        gh("api", f"repos/{REPO}/issues/{n}/reactions/{r['id']}", "-X", "DELETE")
+    except RuntimeError:
+        pass  # already gone: a peer worker removed it first
 
 
 def cmd_claim(a):
     st = claim_state(a.n)
-    if st.get("mine"):
-        if not claimed_here(a.n):
-            sys.exit(f"#{a.n}: another worker on this account holds it; skip it")
-        return say(f"#{a.n}: already yours ({st['reason']})")
     if not st["ok"]:
         sys.exit(f"#{a.n}: not claimable: {st['reason']}")
+    if st.get("own_live"):  # this account holds a live claim: this checkout's, or a peer worker's
+        if not claimed_here(a.n, max(r["created_at"] for r in st["own_live"])[:19] + "Z"):
+            sys.exit(f"#{a.n}: another worker on this account holds it; skip it")
+        return say(f"#{a.n}: already yours ({st['reason']})")
+    stale = st.get("own_stale") or []  # this account's expired 👀 (ours or a peer's): replaced by a new one below
     if dry_run():
-        return say(f"DRY RUN #{a.n}: claimable; no reaction added")
+        return say(f"DRY RUN #{a.n}: claimable{' (takes over an expired claim of this account)' if stale else ''}; no reaction added")
+    for r in stale:
+        drop_reaction(a.n, r)  # a 👀 keeps its first time when re-added, so the expired one goes first
     out = gh("api", "--include", f"repos/{REPO}/issues/{a.n}/reactions", "-X", "POST", "-f", f"content={CFG['claim_reaction']}")
     if re.match(r"HTTP/\S+ 200\b", out):  # 200, not 201: the reaction already existed, so a peer worker claimed it just now
         sys.exit(f"#{a.n}: another worker on this account claimed it a moment ago; skip it")
@@ -463,8 +493,12 @@ def cmd_claim(a):
     if not st.get("mine"):
         mine = [r for r in eyes(a.n) if r["user"]["login"] == me()]
         for r in mine:
-            gh("api", f"repos/{REPO}/issues/{a.n}/reactions/{r['id']}", "-X", "DELETE")
+            drop_reaction(a.n, r)
         sys.exit(f"#{a.n}: lost the claim to {st['holder']} (earlier valid claim); your reaction was removed")
+    if stale:
+        jl_append(os.path.join(LOGS, "claims.jsonl"), {"ts": now(), "issue": a.n, "event": "takeover",
+                                                       "expired": [r["created_at"] for r in stale], "why": "this account's 👀 expired"})
+        say(f"#{a.n}: took over this account's expired claim ({', '.join(r['created_at'] for r in stale)})")
     jl_append(os.path.join(LOGS, "claims.jsonl"), {"ts": now(), "issue": a.n, "event": "claim", "takeover": st["takeover"]})
     say(f"#{a.n}: claimed. Comment within {CFG['claim_expiry_min']} min (the triage comment, or `note {a.n} --reproducing <version>`), or unclaim.")
 
@@ -475,6 +509,36 @@ def cmd_unclaim(a):
             gh("api", f"repos/{REPO}/issues/{a.n}/reactions/{r['id']}", "-X", "DELETE")
     jl_append(os.path.join(LOGS, "claims.jsonl"), {"ts": now(), "issue": a.n, "event": "unclaim", "why": a.why or ""})
     say(f"#{a.n}: claim removed")
+
+
+def release_expired():
+    """Round start (`inbox`, `followups`): unclaim this checkout's own claims that expired. A claim in the log with no
+    post or fix from this checkout after it, and older than claim_expiry_min, is checked on GitHub: an expired 👀 of the
+    account (no comment from it after the 👀) is removed. A newer 👀 is a peer worker's takeover and stays."""
+    log = os.path.join(LOGS, "claims.jsonl")
+    last = {}
+    for r in jl_read(log):
+        last[r.get("issue")] = r
+    used = {}
+    for r in jl_read(POSTED) + jl_read(FIXES):
+        used[r.get("issue")] = max(used.get(r.get("issue"), ""), r.get("ts", ""))
+    for n, r in sorted(last.items(), key=lambda x: str(x[0])):
+        if r.get("event") != "claim" or not r.get("ts") or age_s(r["ts"]) <= CFG["claim_expiry_min"] * 60 or used.get(n, "") >= r["ts"]:
+            continue
+        try:
+            rows = [x for x in eyes(n) if x["user"]["login"] == me()]
+            live, stale = own_claims(rows, issue_live(n)["comments"]) if rows else ([], [])
+        except RuntimeError as e:
+            say(f"#{n}: expired-claim check skipped this round ({e})")
+            continue
+        if dry_run():
+            say(f"DRY RUN #{n}: own claim of {r['ts']} expired; would remove {len(stale)} 👀")
+            continue
+        for x in stale:
+            drop_reaction(n, x)
+        why = "expired (round start)" + ("; the account's 👀 now is a newer or answered claim" if live else "")
+        jl_append(log, {"ts": now(), "issue": n, "event": "unclaim", "why": why})
+        say(f"#{n}: own claim of {r['ts']} expired: {why}")
 
 
 def cmd_note(a):
@@ -1122,6 +1186,7 @@ FSTATE = os.path.join(STATE, "followup-state.json")
 
 
 def cmd_followups(a):
+    release_expired()
     st = jload(FSTATE, {})
     rows = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search", f"commenter:{me()} sort:updated-desc",  # a reply updates the thread; 1,843 open on 2026-10-28
                "--json", "number,title,labels,comments,author")

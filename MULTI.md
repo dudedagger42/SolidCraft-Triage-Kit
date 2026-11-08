@@ -24,7 +24,8 @@ skip the issue. Also skip issues with a linked PR or a maintainer reply. `inbox`
 
 ## 4. 20-minute expiry
 
-A 👀 with no comment from its account after 20 min has expired; anyone may claim the issue. Still reproducing after
+A 👀 with no comment from its account after 20 min has expired; anyone may claim the issue, another worker on the
+same account too (`claim N` replaces the expired 👀 and logs the takeover). Still reproducing after
 20 min? Post the short note: `note N --reproducing <version>`. Your result later replaces that note in place (one
 comment per issue). Giving up: `unclaim N`.
 

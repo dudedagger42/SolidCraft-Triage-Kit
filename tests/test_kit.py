@@ -214,6 +214,120 @@ expect("pings: linux", t.pick_reproducers(4, "Ubuntu 24.04", {"example-account"}
 expect("kit's own list parses", all("account" in r for r in json.load(open(os.path.join(ROOT, "reproducers.json"), encoding="utf-8"))["reproducers"]), True)
 
 
+# ---- claims on one account: expired 👀 of this account are taken over; an issue the account opened can be claimed
+import argparse  # noqa: E402
+
+ago = lambda m: (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=m)).strftime("%Y-%m-%dT%H:%M:%SZ")
+CALLS, POST_STATUS, EYES = [], ["HTTP/2.0 201 Created"], {}
+saved = (t.gh, t.eyes, t.issue_live, t.time.sleep)
+
+
+def fake_gh(*args, inp=None):
+    if t.dry_run() and t.gh_is_write(args):
+        return ""
+    CALLS.append(args)
+    if "DELETE" in args:
+        n, rid = args[1].split("/")[-3], int(args[1].split("/")[-1])
+        EYES[int(n)] = [r for r in EYES.get(int(n), []) if r["id"] != rid]
+    elif "POST" in args:
+        n = int(args[2].split("/")[-2])
+        if POST_STATUS[0].endswith("201 Created"):
+            EYES.setdefault(n, []).append({"user": {"login": "example-account"}, "created_at": ago(0), "id": 900 + len(CALLS)})
+        return POST_STATUS[0] + "\n\n{}"
+    return ""
+
+
+ISSUES = {}
+t.gh, t.eyes, t.time.sleep = fake_gh, (lambda n: list(EYES.get(n, []))), (lambda s: None)
+t.issue_live = lambda n: ISSUES[n]
+
+
+def eye(who, at, rid):
+    return {"user": {"login": who}, "created_at": at, "id": rid}
+
+
+def run_claim(n):
+    CALLS.clear()
+    try:
+        t.cmd_claim(argparse.Namespace(n=n))
+        return "ok"
+    except SystemExit as e:
+        return str(e)
+
+
+def last_events(n):
+    return [r["event"] for r in t.jl_read(os.path.join(t.LOGS, "claims.jsonl")) if r.get("issue") == n]
+
+
+# 3: the issue author is this account (#11997): its own 👀 is a claim; another author's 👀 still is not
+ISSUES[7101] = {"state": "OPEN", "labels": [], "author": {"login": "example-account"}, "createdAt": old_ago, "comments": []}
+EYES[7101] = [eye("example-account", ago(2), 1)]
+st = t.claim_state(7101, ISSUES[7101])
+expect("own issue: own 👀 holds it", (st["holder"], st["mine"]), ("example-account", True))
+EYES[7101] = []
+expect("own issue: claim keeps its reaction", (run_claim(7101), len(EYES[7101]), last_events(7101)[-1]), ("ok", 1, "claim"))
+ISSUES[7102] = {"state": "OPEN", "labels": [], "author": {"login": "reporter1"}, "createdAt": old_ago, "comments": []}
+EYES[7102] = [eye("reporter1", ago(2), 1)]
+expect("author's 👀 (another account) is not a claim", t.claim_state(7102, ISSUES[7102])["holder"], None)
+
+# 2: a peer worker's 👀 (same account) older than the expiry, no comment after it: taken over, with a log line
+EYES[7102] = [eye("example-account", ago(140), 5)]
+st = t.claim_state(7102, ISSUES[7102])
+expect("expired own 👀: free, stale", (st["ok"], st["mine"], len(st["own_stale"])), (True, None, 1))
+expect("expired own 👀: claim takes it over", run_claim(7102), "ok")
+expect("takeover: old 👀 deleted first, then a new one", [c[c.index("-X") + 1] for c in CALLS if "-X" in c], ["DELETE", "POST"])
+expect("takeover logged before the claim", last_events(7102)[-2:], ["takeover", "claim"])
+expect("takeover: now held here", run_claim(7102), "ok")
+expect("takeover: no second reaction", [c for c in CALLS if "POST" in c or "DELETE" in c], [])
+EYES[7103] = [eye("example-account", ago(140), 6)]
+ISSUES[7103] = dict(ISSUES[7102], comments=[])
+POST_STATUS[0] = "HTTP/2.0 200 OK"  # a peer re-added it between our delete and our post
+expect("takeover race: a peer re-claimed first", "claimed it a moment ago" in run_claim(7103), True)
+POST_STATUS[0] = "HTTP/2.0 201 Created"
+EYES[7104] = [eye("example-account", ago(3), 7)]
+ISSUES[7104] = dict(ISSUES[7102], comments=[])
+expect("a live peer 👀 still refuses", "another worker on this account holds it" in run_claim(7104), True)
+ISSUES[7105] = dict(ISSUES[7102], comments=[cmt("example-account", "/note", ago(100))])
+EYES[7105] = [eye("example-account", ago(140), 8)]
+expect("an old 👀 followed by our comment still holds", t.claim_state(7105, ISSUES[7105])["mine"], True)
+
+# 1: a thread this account owns by comment: a 👀 from before its last comment, or expired after it, does not block
+mine_c = cmt("example-account", t.wrap("Which file?"), ago(300))
+ISSUES[7106] = dict(ISSUES[7102], comments=[mine_c, cmt("reporter1", "here", ago(60))])
+EYES[7106] = [eye("example-account", ago(2900), 9), eye("example-account", ago(30), 10)]
+t.jl_append(os.path.join(t.LOGS, "claims.jsonl"), {"ts": ago(400), "issue": 7106, "event": "unclaim"})
+st = t.claim_state(7106, ISSUES[7106])
+expect("own thread: old 👀 are stale", (st["mine"], st["own_live"], len(st["own_stale"])), (True, [], 2))
+expect("own thread: re-claim after unclaim", (run_claim(7106), len(EYES[7106]), last_events(7106)[-2:]), ("ok", 1, ["takeover", "claim"]))
+EYES[7107] = [eye("example-account", ago(5), 11)]
+ISSUES[7107] = dict(ISSUES[7106])
+t.jl_append(os.path.join(t.LOGS, "claims.jsonl"), {"ts": ago(400), "issue": 7107, "event": "claim"})
+expect("own thread: a fresh 👀 after our old claim is a peer's", "another worker" in run_claim(7107), True)
+EYES[7108] = []
+ISSUES[7108] = dict(ISSUES[7106])
+os.environ["TRIAGE_DRY_RUN"] = "1"
+expect("dry run: no reaction, no log", (run_claim(7108), CALLS, last_events(7108)), ("ok", [], []))
+del os.environ["TRIAGE_DRY_RUN"]
+
+# round start: this checkout's own expired claims are released; used or replaced ones are not deleted
+for n, m in ((7201, 40), (7202, 40), (7203, 40), (7204, 5)):
+    t.jl_append(os.path.join(t.LOGS, "claims.jsonl"), {"ts": ago(m), "issue": n, "event": "claim"})
+    ISSUES[n] = dict(ISSUES[7102], comments=[])
+EYES[7201] = [eye("example-account", ago(40), 21)]
+EYES[7202] = [eye("example-account", ago(40), 22)]
+t.jl_append(t.POSTED, {"ts": ago(30), "issue": 7202})
+EYES[7203] = [eye("example-account", ago(4), 23)]  # a peer took it over
+EYES[7204] = [eye("example-account", ago(5), 24)]
+CALLS.clear()
+t.release_expired()
+expect("round start: expired own claim removed", (EYES[7201], last_events(7201)[-1]), ([], "unclaim"))
+expect("round start: a used claim is kept", (len(EYES[7202]), last_events(7202)[-1]), (1, "claim"))
+expect("round start: a peer's newer 👀 is kept", (len(EYES[7203]), last_events(7203)[-1]), (1, "unclaim"))
+expect("round start: a young claim is kept", (len(EYES[7204]), last_events(7204)[-1]), (1, "claim"))
+expect("round start: only claim API calls", {c[0] for c in CALLS}, {"api"})
+t.gh, t.eyes, t.issue_live, t.time.sleep = saved
+
+
 def main():
     for f in FAIL:
         print("FAIL", f)

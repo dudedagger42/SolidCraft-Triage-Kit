@@ -70,8 +70,11 @@ new report waits, the fast lane may take **one** older report per run (`inbox --
 --max-age-min 5760 --limit 1`), so it is free again within minutes; the backlog worker goes oldest first, so the two
 meet only at the end.
 
-Workers on one account share one 👀, so `claim` refuses an issue this checkout's own claim log does not hold ("another
-worker on this account holds it"), and an issue whose 👀 already existed when it reacted. Set `"peer_states":
+Workers on one account share one 👀, so `claim` refuses an issue whose live 👀 this checkout's own claim log does not
+hold ("another worker on this account holds it"), and an issue whose 👀 already existed when it reacted. The account's
+👀 expires like any other (20 min with no comment from the account after it; on a thread the account owns, one from
+before its last comment is spent): `claim` then removes it, adds a fresh one and logs the takeover. `inbox` and
+`followups` first release this checkout's own expired claims. Set `"peer_states":
 ["<other checkout>/state"]` in each worker's config, so `inbox` also skips what a peer decided (no action, handed off).
 
 ## Team roles
