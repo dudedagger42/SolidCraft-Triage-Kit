@@ -6,7 +6,7 @@
   {"id": "R002", "profile": "all", "severity": "block", "pattern": "\\b(thanks?|thank you|great report|appreciate|glad (it|that)|happy to help|hope this helps)\\b",
    "message": "Thanks or filler. Every comment must move the issue forward."},
   {"id": "R003", "profile": "first", "severity": "block", "pattern": "\\b(not )?reproduced\\b|could(n\\x27t| not) reproduce|\\breproduc(e|es|ible) (it|this|fine)\\b",
-   "message": "The first pass runs nothing: a bug with steps or a file is needs_repro."},
+   "message": "The comment says reproduce/reproduced ('reproduce it', 'could not reproduce'...), but the first pass runs nothing. In an ask, reword it ('so we can try it', 'so we can look at it'); a bug with steps or a file is needs_repro."},
   {"id": "R004", "profile": "first", "severity": "block", "pattern": "\\bI (tested|tried|ran|verified|checked|opened|replayed|confirmed)\\b",
    "message": "Claims an action the first pass does not perform."},
   {"id": "R005", "profile": "all", "severity": "block", "pattern": "\\bwork-?around\\b|\\btry (a |the )?(smaller|different|another|disabling|enabling|switching|turning)\\b|\\bsetting .* may help\\b|\\bin the meantime,? you (can|could)\\b",
