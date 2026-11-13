@@ -17,7 +17,8 @@ text in front of you, not from memory. `post --approve` on a REVIEW item needs t
 7. **Claims.** Does it say "reproduced", "I confirmed", "workaround", "fixed in", "we will", "thanks", or promise
    anything for the maintainers? Only a run on the current release may say what was run, and what was and was not tested.
 8. **Kernel.** A kernel-area report gets the same treatment as any bug and is named as kernel work (Solidcore), with a
-   matching tangency-labs/solidcore issue or PR linked if one exists. Nothing says kernel work is paused (Gabe, 2026-11-04).
+   matching tangency-labs/solidcraft issue or PR linked if one exists. It never says "upstream" or "tangency-labs/solidcore"
+   (Solidcore is in SolidCraft since 2026-11-08). Nothing says kernel work is paused (Gabe, 2026-11-04).
 9. **Privacy.** No private or work file, no local path, nothing from `state/private-names.txt`.
 10. **Thread state.** Is the issue closed, labelled `in progress` / `claimed`, linked to a PR, or did a
     person (or another triage account) comment after the case was built? (Then do not post; rebuild the case.)

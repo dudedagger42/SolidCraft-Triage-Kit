@@ -837,7 +837,7 @@ def decide(ans, case):
     """The answers decide; the model never picks the verdict. Returns (verdict, must, why)."""
     verdict, must, why = _decide(ans, case)
     if ans.get("is_kernel_area") and verdict in ("needs_info", "needs_repro"):  # kernel work is triaged like any bug now (Gabe, 2026-11-04)
-        must = must + ["say the failing step is kernel work (Solidcore); link a tangency-labs/solidcore issue or PR for the same failure if one exists"]
+        must = must + ["say the failing step is kernel work (Solidcore); never say it goes upstream or to tangency-labs/solidcore (Solidcore is in SolidCraft since 2026-11-08); link a tangency-labs/solidcraft issue or PR for the same failure if one exists"]
     return verdict, must, why
 
 
