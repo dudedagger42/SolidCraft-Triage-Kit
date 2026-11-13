@@ -830,6 +830,10 @@ def klass(ans):
         return "support"
     if ans.get("asks_for_new_behaviour"):
         return "enhancement"
+    # A report with steps, a runnable attachment or an error text is a bug report even when the title is only
+    # "<COMMAND>: operation failed" (#16103, #16133, #8825, #8681 were stuck as unclear/no_action in v2.28).
+    if ans.get("has_steps") or ans.get("attachment_is_runnable") or ans.get("has_error_text"):
+        return "bug"
     return "unclear"
 
 
