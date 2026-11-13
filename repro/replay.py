@@ -6,7 +6,7 @@ run it on the official CLI, and print a verdict line the agent can use.
 Prints: REPLAY #N <result> | file | detail. Results:
   FAILED          the CLI reported the error the reporter saw (compare the text with the report's error text)
   RAN_CLEAN       the saved design evaluates with no feature error. This does NOT prove the bug does not reproduce: the action the reporter tried next is usually not in the file
-  NO_FILE         nothing runnable attached (zip without a .solidcraft/.json/.step, or no attachment)
+  NO_FILE         nothing runnable attached (zip without a .sc/.solidcraft/.json/.step, or no attachment)
   CANNOT_RUN      the CLI refused the file type, timed out, or the download failed
 
 This never proves a GUI or hardware bug: those stay `could_not_test`. A FAILED/RAN_CLEAN result is still only "on the official
@@ -19,7 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KIT = os.path.dirname(HERE)
 CASES = os.path.join(os.environ.get("TRIAGE_STATE") or os.path.join(KIT, "state"), "cases")
 DEFAULT_CLI = os.environ.get("SOLIDCRAFT_CLI")  # the official build's solidcraft-cli (see SOLO.md, "Setup")
-RUNNABLE = (".solidcraft", ".json", ".step", ".stp")
+RUNNABLE = (".sc", ".solidcraft", ".json", ".step", ".stp")
 
 
 def fetch(url, dest):
