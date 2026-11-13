@@ -70,8 +70,8 @@ fix drops it back to every 6 h.
 
 - One comment per issue. A correction edits that comment (`fix`); the kit refuses a second one.
 - At least 6 s between posts (the kit waits).
-- Kernel bugs are triaged like any bug and called kernel work (Solidcore), so they can go upstream.
-- Tell reporters to zip `.solidcraft` files; never ask for a file for a crash, GUI or usage report.
+- Kernel bugs are triaged like any bug and called kernel work (Solidcore). Solidcore lives in SolidCraft since 2026-11-08: link a SolidCraft issue or PR for the same failure, never "a Solidcore issue" or upstream.
+- Tell reporters to zip `.sc` design files (`.solidcraft` on older releases); never ask for a file for a crash, GUI or usage report.
 - No untested workaround, no "we", no thanks, no promise, no priority in a comment.
 - Never post a private or work file, a local path, or a key.
 - The header is the kit's, built from your login, and only your first comment in a thread carries it; replies and
