@@ -1269,6 +1269,58 @@ def cmd_followups(a):
     say(f"{len(out)} follow-up(s) on threads you own -> state/followups.json")
 
 
+SKIPS = os.path.join(LOGS, "skipped-followups.jsonl")
+SKIPS_CONFIRMED = os.path.join(LOGS, "skipped-confirmed.txt")
+SKIPS_KEEP_DAYS = 7
+
+
+def skip_reason(body):
+    """Why a follow-up needs nothing from us, or "". Two plain rules, no judgment: the newest human comment is only a
+    /claim or /unclaim (the claim bot answers it), or it @-mentions someone else and not this account."""
+    body = (body or "").strip()
+    low = body.lower()
+    if low.startswith(("/claim", "/unclaim")) and len(body) <= 200 and "\n" not in body:
+        return "claim/unclaim"
+    mentions = {m.lower() for m in re.findall(r"(?<![\w@])@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)", body)}
+    if mentions and me().lower() not in mentions:
+        return "addressed to someone else"
+    return ""
+
+
+def log_skip(n, comment, why):
+    """Record a skipped follow-up once per comment, so the audit can confirm it was right to skip."""
+    seen = {(r.get("n"), r.get("comment_at")) for r in jl_read(SKIPS)}
+    if (n, comment["createdAt"]) in seen:
+        return
+    jl_append(SKIPS, {"ts": now(), "n": n, "by": comment["author"]["login"], "why": why,
+                      "comment_at": comment["createdAt"], "text": (comment["body"] or "").strip()[:160]})
+
+
+def cmd_skips(a):
+    try:
+        confirmed = open(SKIPS_CONFIRMED, encoding="utf-8").read().strip()
+    except OSError:
+        confirmed = ""
+    rows = jl_read(SKIPS)
+    todo = [r for r in rows if r.get("ts", "") > confirmed]
+    if a.done:
+        if todo:
+            confirmed = max(r.get("ts", "") for r in todo)
+            with open(SKIPS_CONFIRMED, "w", encoding="utf-8", newline="\n") as f:
+                f.write(confirmed + "\n")
+        cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=SKIPS_KEEP_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        keep = [r for r in rows if r.get("ts", "") > confirmed or r.get("ts", "") >= cutoff]
+        with open(SKIPS + ".tmp", "w", encoding="utf-8", newline="\n") as f:
+            for r in keep:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        os.replace(SKIPS + ".tmp", SKIPS)
+        return say(f"confirmed {len(todo)} skip(s); the log holds {len(keep)} (confirmed ones are kept {SKIPS_KEEP_DAYS} days)")
+    if not todo:
+        return say("no unconfirmed skips")
+    for r in todo:
+        say(f"{r['ts']} #{r['n']} by {r['by']} ({r['why']}): {r.get('text', '')[:120]}")
+
+
 def followup_items(rows=None):
     st = jload(FSTATE, {})
     if rows is None:
@@ -1287,6 +1339,10 @@ def followup_items(rows=None):
             continue  # MULTI.md 6a: a reproducer posted; the thread and its follow-ups are theirs now
         after = [c for c in cs[mine[-1] + 1:] if c["author"]["login"] not in BOTS | {me()}]
         if not after or st.get(str(i["number"])) == after[-1]["createdAt"]:
+            continue
+        why = skip_reason(after[-1]["body"])
+        if why:
+            log_skip(i["number"], after[-1], why)
             continue
         out.append({"number": i["number"], "title": i["title"][:70], "last_reply_at": after[-1]["createdAt"],
                     "maintainer_replied": any(c.get("authorAssociation") in CFG["maintainer_associations"] for c in after),
@@ -1617,16 +1673,18 @@ def maintenance_checked(kind):
     update_work(change)
 
 
-def waiting_work(include_offered=False):
+def waiting_work(include_offered=False, kinds=None):
     st = jload(os.path.join(STATE, "work.json"), {})
     a = argparse.Namespace(hours=96, limit=10, newest=True, min_age_min=None, max_age_min=None,
                            exclude=set(st.get("new", [])), pinged_only=True)
     rows = list(st.get("pending", [])) if include_offered else []
     rows += [{**r, "kind": "new"} for r in inbox_items(a)]
-    involved = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search", f"involves:{me()} sort:updated-desc",
-                   "--json", "number,title,labels,comments,author")
-    rows += [{**r, "kind": "followup"} for r in followup_items(involved)]
-    rows += [{**r, "kind": "repro"} for r in repro_items(a, involved)]
+    # A dispatcher limited to new issues spends no quota on the follow-up and reproducer searches.
+    if not kinds or set(kinds) & {"followup", "repro"}:
+        involved = ghj("issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--search", f"involves:{me()} sort:updated-desc",
+                       "--json", "number,title,labels,comments,author")
+        rows += [{**r, "kind": "followup"} for r in followup_items(involved)]
+        rows += [{**r, "kind": "repro"} for r in repro_items(a, involved)]
     # A single issue gets one fresh run even if it appears in two lists.
     out, numbers = [], set()
     for r in rows:
@@ -1668,23 +1726,57 @@ def cmd_work(a):
     sys.exit(0 if rows else 1)
 
 
-def dispatch_run(argv, env, item):
-    started = time.monotonic()
-    code = 1
-    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as output:
+def dispatch_run(argv, env, item, output_dir=None):
+    """Run one dispatched agent. With output_dir, its whole stdout and stderr are kept in
+    <output_dir>/run-<issue or kind>-<unix time>.json (the command is split without a shell, so a `>` in it is only
+    an argument, never a redirect); dispatch.jsonl names that file."""
+    started, started_at = time.monotonic(), now()
+    code, path = 1, None
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, f"run-{item.get('number') or item['kind']}-{int(time.time())}.json")
+    with (open(path, "w+", encoding="utf-8", errors="replace") if path else
+          tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")) as output:
         try:
             code = subprocess.run(argv, cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT).returncode
         except OSError as e:
             output.write(str(e))
         output.seek(0)
         tail = list(deque(output, maxlen=20))
-    return {"ts": now(), "issue": item.get("number"), "kind": item["kind"], "exit_code": code,
-            "duration_s": round(time.monotonic() - started, 3), "output_tail": "".join(tail)[-4000:]}
+    return {"ts": now(), "started_at": started_at, "issue": item.get("number"), "kind": item["kind"], "exit_code": code,
+            "duration_s": round(time.monotonic() - started, 3), "output": path, "output_tail": "".join(tail)[-4000:]}
+
+
+def requeue_failed(result, item, limit=5):
+    """A new-issue run that failed (usage limit, crash) goes back to pending, so the next dispatch retries it, up to
+    `limit` attempts. The failed run posted nothing: a launch that did post is recorded by submit/post, not here."""
+    n = item.get("number")
+    if item.get("kind") != "new" or n is None or result["exit_code"] == 0:
+        return
+
+    def change(st):
+        tries = st.setdefault("attempts", {})
+        tries[str(n)] = tries.get(str(n), 0) + 1
+        if tries[str(n)] >= limit:
+            return
+        st["new"] = [x for x in st.get("new", []) if x != n]
+        pending = {r["number"]: r for r in st.get("pending", [])}
+        pending[n] = dict(item)
+        st["pending"] = list(pending.values())
+    update_work(change)
+
+
+KINDS = ("new", "followup", "repro", "corrections", "audit")
 
 
 def cmd_dispatch(a):
     if a.max < 1:
         sys.exit("--max must be at least 1")
+    kinds = [k.strip() for k in (getattr(a, "kinds", None) or "").split(",") if k.strip()]
+    if set(kinds) - set(KINDS):
+        sys.exit(f"--kinds takes a comma-separated list of: {', '.join(KINDS)}")
+    output_dir = getattr(a, "output_dir", None)
+    output_dir = os.path.abspath(os.path.join(ROOT, output_dir)) if output_dir else None
     parts = shlex.split(a.run)
     if not parts:
         sys.exit("--run must name a command")
@@ -1703,7 +1795,9 @@ def cmd_dispatch(a):
         quota = ghj("api", "rate_limit")["resources"]
         if min(quota[k]["remaining"] for k in ("core", "search")) < CFG["dispatch_quota_floor"]:
             return say("quota below dispatch_quota_floor; no runs")
-        rows = waiting_work(include_offered=True)
+        rows = waiting_work(include_offered=True, kinds=kinds)
+        if kinds:
+            rows = [r for r in rows if r.get("kind") in kinds]
         if not rows:
             return
         work_path = os.path.join(STATE, "dispatch-work.json")
@@ -1712,7 +1806,7 @@ def cmd_dispatch(a):
         items = rows if a.per_issue else [{"kind": "work"}]
         failures = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=a.max) as pool:
-            pending = set()
+            pending, futures = set(), {}
             try:
                 for item in items:
                     if len(pending) >= a.max:
@@ -1720,6 +1814,7 @@ def cmd_dispatch(a):
                         for f in done:
                             result = f.result()
                             jl_append(os.path.join(LOGS, "dispatch.jsonl"), result)
+                            requeue_failed(result, futures[f])
                             failures.append(result["exit_code"])
                     n = item.get("number")
                     context = ""
@@ -1742,12 +1837,15 @@ def cmd_dispatch(a):
                         say((f"claim {n}; " if n is not None else "") + shlex.join(argv))
                         continue
                     env = dict(os.environ, TRIAGE_WORK=task_path, TRIAGE_N=values["n"], TRIAGE_CONTEXT=context)
-                    pending.add(pool.submit(dispatch_run, argv, env, item))
+                    fut = pool.submit(dispatch_run, argv, env, item, output_dir)
+                    futures[fut] = item
+                    pending.add(fut)
                     offered_work([item] if a.per_issue else rows, launched=True)
             finally:
                 for f in concurrent.futures.as_completed(pending):
                     result = f.result()
                     jl_append(os.path.join(LOGS, "dispatch.jsonl"), result)
+                    requeue_failed(result, futures[f])
                     failures.append(result["exit_code"])
         if any(failures):
             sys.exit(1)
@@ -1783,7 +1881,9 @@ def main():
 
     add("work", cmd_work, (["--json"], dict(action="store_true")))
     add("dispatch", cmd_dispatch, (["--run"], dict(required=True)), (["--per-issue"], dict(action="store_true")),
-        (["--max"], dict(type=int, default=1)), (["--dry-run"], dict(action="store_true")))
+        (["--max"], dict(type=int, default=1)), (["--dry-run"], dict(action="store_true")),
+        (["--kinds"], dict(default=None, help="only these kinds of work, comma-separated: " + ",".join(KINDS))),
+        (["--output-dir"], dict(default=None, help="keep each run's full output in DIR/run-<n>-<unix time>.json (relative to the kit)")))
     N = (["n"], dict(type=int))
     BY = (["--by"], dict(default="first", choices=sorted(PROFILES)))
     add("inbox", cmd_inbox, (["--limit"], dict(type=int, default=10)), (["--hours"], dict(type=float, default=96)),
@@ -1806,6 +1906,7 @@ def main():
     add("post", cmd_post, N, (["--approve"], dict(action="store_true")))
     add("fix", cmd_fix, N, (["--file"], dict(required=True)), (["--why"], dict(required=True)), BY, (["--comment-id"], dict(type=int, dest="comment_id")))
     add("followups", cmd_followups)
+    add("skips", cmd_skips, (["--done"], dict(action="store_true", help="confirm the listed skips and prune confirmed ones older than 7 days")))
     add("reply", cmd_reply, N, (["--file"], dict(required=True)), (["--why"], dict(required=True)), BY,
         (["--translation"], {}), (["--language"], {}))
     add("handled", cmd_handled, N, (["--why"], dict(required=True)))

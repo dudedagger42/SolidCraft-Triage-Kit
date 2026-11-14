@@ -4,7 +4,7 @@
 
 Every merged change keeps this passing; a new lint adds one good and one bad example here.
 """
-import datetime as dt, json, os, sys, tempfile
+import datetime as dt, json, os, re, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMP = tempfile.mkdtemp(prefix="kit-selftest-")
@@ -406,6 +406,43 @@ expect("work: reproducer ping", [r["kind"] for r in t.waiting_work()], ["repro"]
 REPRO[0]["comments"][0]["body"] = t.wrap(t.CANT_RUN, status="repro_wanted")
 expect("work: unaddressed repro request does not wake account", t.waiting_work(), [])
 REPRO.clear()
+# Follow-up filter: a newest comment that is only /claim or /unclaim, or that @-mentions someone else and not this
+# account, is skipped and logged once; anything else still counts.
+skips_log = os.path.join(t.LOGS, "skipped-followups.jsonl")
+def follow_with(n, body, who="reporter1"):
+    return wake_issue(n, comments=[cmt("example-account", t.wrap("Which file?"), ago(20)), cmt(who, body, ago(1))])
+for n, body, skipped in ((8111, "/claim", True), (8112, "/unclaim", True), (8113, "/claim\nit also crashes with a new file, see below", False),
+                         (8114, "thanks @other-person, can you look?", True), (8115, "@example-account here is the file", False),
+                         (8116, "@other-person and @example-account both", False), (8117, "Here is the file", False),
+                         (8118, "mail me at a@b.com", False)):
+    FOLLOW[:] = [follow_with(n, body)]
+    expect(f"follow-up filter: {body[:25]!r}", [r["number"] for r in t.followup_items()], [] if skipped else [n])
+logged = t.jl_read(skips_log)
+expect("follow-up filter: skips logged with reason", [(r["n"], r["why"]) for r in logged],
+       [(8111, "claim/unclaim"), (8112, "claim/unclaim"), (8114, "addressed to someone else")])
+FOLLOW[:] = [follow_with(8111, "/claim")]
+t.followup_items()
+expect("follow-up filter: the same comment is logged once", len(t.jl_read(skips_log)), 3)
+with contextlib.redirect_stdout(io.StringIO()) as printed:
+    t.cmd_skips(argparse.Namespace(done=False))
+expect("skips: lists the unconfirmed", printed.getvalue().count("\n"), 3)
+with contextlib.redirect_stdout(io.StringIO()) as printed:
+    t.cmd_skips(argparse.Namespace(done=True))
+old_ts = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=9)).strftime("%Y-%m-%dT%H:%M:%SZ")
+with contextlib.redirect_stdout(io.StringIO()) as printed:
+    t.cmd_skips(argparse.Namespace(done=False))
+expect("skips: nothing unconfirmed after --done", printed.getvalue().strip(), "no unconfirmed skips")
+os.remove(t.SKIPS_CONFIRMED)
+rows_all = t.jl_read(skips_log)
+rows_all[-1]["ts"] = old_ts
+with open(skips_log, "w") as fh:
+    fh.write("".join(json.dumps(r) + "\n" for r in rows_all))
+with open(t.SKIPS_CONFIRMED, "w") as fh:
+    fh.write(t.now() + "\n")
+with contextlib.redirect_stdout(io.StringIO()):
+    t.cmd_skips(argparse.Namespace(done=True))
+expect("skips: confirmed entries older than 7 days are pruned", [r["n"] for r in t.jl_read(skips_log)], [8111, 8112])
+FOLLOW.clear()
 st = t.jload(work_path)
 st["audit"] = ago(400)
 st["corrections"] = ago(300)
@@ -507,7 +544,7 @@ LAUNCHES, active, peak = [], [0], [0]
 mutex = threading.Lock()
 barrier = threading.Barrier(2)
 
-def fake_run(argv, env, item):
+def fake_run(argv, env, item, output_dir=None):
     with mutex:
         active[0] += 1
         peak[0] = max(peak[0], active[0])
@@ -529,7 +566,7 @@ t.cmd_claim, t.dispatch_run = fake_claim, fake_run
 # Clear pending work previously offered by the CLI.
 t.jsave(work_path, {"new": [], "audit": t.now(), "corrections": t.now(), "audit_posts": len(t.jl_read(t.POSTED))})
 NEW[:] = [wake_issue(n) for n in (8501, 8502, 8503, 8504)]
-da = argparse.Namespace(run='agent --issue {n} --context "{context}" --kit "{kit}" --work "{work}"', per_issue=True, max=2, dry_run=False)
+da = argparse.Namespace(kinds=None, output_dir=None, run='agent --issue {n} --context "{context}" --kit "{kit}" --work "{work}"', per_issue=True, max=2, dry_run=False)
 t.cmd_dispatch(da)
 expect("dispatch: refused claim skipped", {x[2]["number"] for x in LAUNCHES}, {8502, 8503, 8504})
 expect("dispatch: maximum respected and reached", peak[0], 2)
@@ -597,6 +634,83 @@ try:
 except SystemExit as e:
     expect("dispatch: failed run propagates failure", e.code, 1)
 expect("dispatch: failed run logged", t.jl_read(os.path.join(t.LOGS, "dispatch.jsonl"))[-1]["exit_code"], 7)
+# --kinds: only that kind of work runs, and a new-issue-only dispatcher never searches follow-ups.
+saved_run = saved_wake["dispatch_run"]
+t.dispatch_run = fake_run
+LAUNCHES.clear()
+t.jsave(work_path, {"new": [], "audit": t.now(), "corrections": t.now(), "audit_posts": len(t.jl_read(t.POSTED))})
+NEW[:] = [wake_issue(8701)]
+FOLLOW[:] = [wake_issue(8702, comments=[cmt("example-account", t.wrap("Which file?"), ago(20)), cmt("reporter1", "Here is the file", ago(1))])]
+da.kinds, da.per_issue = "followup", True
+t.cmd_dispatch(da)
+expect("dispatch --kinds followup: only the follow-up runs", [x[2]["number"] for x in LAUNCHES], [8702])
+LAUNCHES.clear()
+searches = []
+inner_ghj = t.ghj
+t.ghj = lambda *args, inp=None: (searches.append(args), inner_ghj(*args, inp=inp))[1]
+da.kinds = "new"
+t.cmd_dispatch(da)
+expect("dispatch --kinds new: only the new issue runs", [x[2]["number"] for x in LAUNCHES], [8701])
+expect("dispatch --kinds new: no follow-up search", [a for a in searches if a[:2] == ("issue", "list") and a[-3].startswith(("involves:", "commenter:"))], [])
+t.ghj = inner_ghj
+da.kinds = "bogus"
+try:
+    t.cmd_dispatch(da)
+    FAIL.append("dispatch: an unknown kind should be refused")
+except SystemExit as e:
+    expect("dispatch --kinds: unknown kind refused", "--kinds takes" in str(e), True)
+da.kinds = None
+FOLLOW.clear()
+NEW.clear()
+# --output-dir: the whole stdout is kept in a file and named in the log.
+out_dir = os.path.join(TMP, "runs")
+big = "import sys; print('x' * 6000); print('end'); sys.exit(0)"
+result = saved_run([sys.executable, "-c", big], dict(os.environ), {"number": 8801, "kind": "new"}, out_dir)
+kept = open(result["output"], encoding="utf-8").read()
+expect("dispatch --output-dir: the full output is kept", (kept.count("x"), kept.rstrip().endswith("end")), (6000, True))
+expect("dispatch --output-dir: file is run-<n>-<time>.json in the directory",
+       (os.path.dirname(result["output"]) == out_dir, re.fullmatch(r"run-8801-\d+\.json", os.path.basename(result["output"])) is not None), (True, True))
+expect("dispatch --output-dir: the log tail is still short", len(result["output_tail"]) <= 4000, True)
+expect("dispatch: no --output-dir means no output path", saved_run([sys.executable, "-c", "pass"], dict(os.environ), {"number": 8802, "kind": "new"})["output"], None)
+da.output_dir = "state-runs"
+LAUNCHES.clear()
+NEW[:] = [wake_issue(8803)]
+t.jsave(work_path, {"new": [], "audit": t.now(), "corrections": t.now(), "audit_posts": len(t.jl_read(t.POSTED))})
+seen_dirs = []
+t.dispatch_run = lambda argv, env, item, output_dir=None: (seen_dirs.append(output_dir), fake_run(argv, env, item))[1]
+t.cmd_dispatch(da)
+expect("dispatch --output-dir: resolved against the kit", seen_dirs, [os.path.join(t.ROOT, "state-runs")])
+da.output_dir = None
+NEW.clear()
+# Retry: a failed new-issue run goes back to pending, up to five tries; other kinds and successes do not.
+t.jsave(work_path, {"new": [8901], "pending": [], "audit": t.now(), "corrections": t.now()})
+item = {"number": 8901, "kind": "new", "title": "x"}
+t.requeue_failed({"exit_code": 0}, item)
+expect("retry: a successful run is not requeued", t.jload(work_path)["new"], [8901])
+t.requeue_failed({"exit_code": 1}, {"number": 8902, "kind": "followup"})
+expect("retry: a failed follow-up is not requeued", t.jload(work_path)["pending"], [])
+t.requeue_failed({"exit_code": 1}, item)
+st = t.jload(work_path)
+expect("retry: a failed new issue returns to pending", (st["new"], [r["number"] for r in st["pending"]], st["attempts"]["8901"]), ([], [8901], 1))
+for _ in range(4):
+    t.requeue_failed({"exit_code": 1}, item)
+st = t.jload(work_path)
+expect("retry: the fifth failure gives up", (st["attempts"]["8901"], st["pending"][0]["number"]), (5, 8901))
+t.jsave(work_path, dict(st, pending=[], new=[8901]))
+t.requeue_failed({"exit_code": 1}, item)
+expect("retry: no sixth try", t.jload(work_path)["pending"], [])
+t.dispatch_run = saved_run
+# A failed run in a real dispatch is queued again.
+t.jsave(work_path, {"new": [], "audit": t.now(), "corrections": t.now(), "audit_posts": len(t.jl_read(t.POSTED))})
+NEW[:] = [wake_issue(8904)]
+t.dispatch_run = lambda *args: dict(fake_run(*args), exit_code=3)
+try:
+    t.cmd_dispatch(da)
+except SystemExit:
+    pass
+expect("retry: dispatch puts a failed new issue back", [r["number"] for r in t.jload(work_path)["pending"]], [8904])
+NEW.clear()
+t.dispatch_run = saved_run
 # The posting lock covers the call itself, including its gap check and GitHub write.
 post_active, post_peak = [0], [0]
 @t.serial_post

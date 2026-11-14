@@ -102,8 +102,9 @@ and `audit --mine` become tasks when due; only shard 0 gets these tasks. Configu
 `state/work.json` remembers new issues already offered, so `work` offers each once. Those offers remain pending for
 `dispatch`; checking `work` first does not lose them. Dispatch records a new issue as launched only after it submits
 the command. Follow-ups remain waiting until replied to or marked `handled`; maintenance stays due until the run
-actually executes `corrections` or `audit --mine`. A failed agent run is logged; review its output and retry a new
-issue explicitly if needed, rather than automatically posting again.
+actually executes `corrections` or `audit --mine`. A failed agent run is logged. A failed run for a new issue goes
+back in the queue and the next dispatch tries it again, up to 5 tries in all (counted in `state/work.json`); the inbox
+still skips an issue that already carries a triage comment, so a retry cannot post twice.
 
 With `--per-issue`, dispatch claims each issue first, skips refusals, writes `state/cases/N.context.md`, and runs at
 most `--max` commands at once (default 1). A due maintenance task gets its own run with an empty `{n}` and
@@ -120,6 +121,17 @@ without cleanup can leave a lock: verify that no dispatcher or writer is running
 the last 20 output lines (at most 4000 characters) go to `state/logs/dispatch.jsonl`; a failed command makes dispatch
 exit 1. Posting and editing share a lock so concurrent runs still observe the kit's posting gap. Separate checkouts
 still need the existing account-wide posting coordination.
+
+`--output-dir DIR` (relative to the kit) keeps each run's complete output in `DIR/run-<issue or kind>-<unix time>.json`
+and names that file in the `output` field of `state/logs/dispatch.jsonl`; without it only the last 20 lines are kept.
+`--kinds new,followup,repro,corrections,audit` limits a dispatcher to those kinds of work, so one dispatcher can take
+only new issues; with only `new` it makes no follow-up or reproducer searches.
+
+A follow-up whose newest human comment is only `/claim` or `/unclaim`, or that @-mentions someone else and not this
+account, is not offered: it needs nothing from the kit. Each skip is written once to
+`state/logs/skipped-followups.jsonl`. `triage.py skips` lists the skips not yet confirmed; after checking them,
+`triage.py skips --done` confirms them and prunes confirmed entries older than 7 days. Unconfirmed ones are never
+dropped.
 
 `post`, accepted `no_action` submissions, and `handled` append local summaries to `state/ledger.jsonl`; dry runs
 append none. Context packs include the reporter's other issues from the last 30 days with ledger verdicts, recent
