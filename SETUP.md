@@ -73,4 +73,136 @@ claim expiry. Each run:
 2. Every 4 h: `corrections`.
 3. Stop on a 429 or 402 from your model API, and tell your user.
 
-Only one run at a time per account: if a run is still going when the next one is due, skip the new one.
+Only one scheduled run at a time per checkout: if a run is still going when the next one is due, skip the new one.
+For fresh runs on individual issues, use dispatch below; keep GitHub posts serial across the account.
+
+## Wake on work
+
+A scheduler can check GitHub without starting a model. Empty checks cost CLI reads, not agent turns. When work
+arrives, dispatch starts a fresh, small run for each issue; the ledger carries useful facts across those runs.
+Keep the existing follow-up, claim, correction and self-assessment rules. Replace the schedule that wakes the agent
+itself with a schedule that runs the kit:
+
+```bash
+python3 -X utf8 kit/triage.py work --json
+python3 -X utf8 kit/triage.py dispatch --per-issue --max 1 --dry-run --run 'your-agent --non-interactive --prompt "Read {kit}/SOLO.md. Handle only the task in {work}; for issue {n}, read {context}."'
+```
+
+`your-agent --non-interactive` stands for your agent's non-interactive mode. Replace it with that program's actual
+arguments, given SOLO.md and issue `{n}`. Remove `--dry-run` after reviewing the launches. The command is split into
+arguments before placeholders are filled; quote arguments containing spaces. It runs in the kit directory, without
+a shell. Use a wrapper script for shell syntax. On Windows use forward slashes in quoted executable paths.
+
+`work` exits 0 when something waits, 1 otherwise. New reports use the same filters and 96-hour window as
+`inbox --newest` (up to 10 unseen reports per check); follow-ups require a person's reply after this account's last
+triage comment, and CFG bots never count. Reproducer requests wake this account only when it is pinged. Corrections
+and `audit --mine` become tasks when due; only shard 0 gets these tasks. Configure `correction_check_h` (4),
+`audit_check_h` (6), and `audit_after_posts` (20) in `state/config.local.json`.
+
+`state/work.json` remembers new issues already offered, so `work` offers each once. Those offers remain pending for
+`dispatch`; checking `work` first does not lose them. Dispatch records a new issue as launched only after it submits
+the command. Follow-ups remain waiting until replied to or marked `handled`; maintenance stays due until the run
+actually executes `corrections` or `audit --mine`. A failed agent run is logged; review its output and retry a new
+issue explicitly if needed, rather than automatically posting again.
+
+With `--per-issue`, dispatch claims each issue first, skips refusals, writes `state/cases/N.context.md`, and runs at
+most `--max` commands at once (default 1). A due maintenance task gets its own run with an empty `{n}` and
+`{context}`; its work file names the command to execute. Without `--per-issue`, one command receives the whole work
+list and follows SOLO.md, including claims, itself. The placeholders are `{kit}`, `{n}`, `{context}`, `{work}`.
+The same paths and number are available as `TRIAGE_CONTEXT`, `TRIAGE_WORK`, and `TRIAGE_N` in the child's environment.
+In per-issue mode the work file contains just that run's task.
+
+Dispatch checks the GitHub core and search quotas before launching; below `dispatch_quota_floor` (10 remaining
+requests by default), it starts nothing. `--dry-run` prints commands and proposed claims without claiming, writing
+packs or consuming work. `state/dispatch.lock` prevents overlapping dispatchers in one checkout. A process killed
+without cleanup can leave a lock: verify that no dispatcher or writer is running before removing an abandoned
+`dispatch.lock`, `work.lock` or `post.lock` directory. Normal errors release locks. Exit code, elapsed seconds and
+the last 20 output lines (at most 4000 characters) go to `state/logs/dispatch.jsonl`; a failed command makes dispatch
+exit 1. Posting and editing share a lock so concurrent runs still observe the kit's posting gap. Separate checkouts
+still need the existing account-wide posting coordination.
+
+`post`, accepted `no_action` submissions, and `handled` append local summaries to `state/ledger.jsonl`; dry runs
+append none. Context packs include the reporter's other issues from the last 30 days with ledger verdicts, recent
+48-hour work with a shared area label or at least two title words, and this account's related open PRs. Packs stay
+within 2048 UTF-8 bytes and `case N` includes them in the checklist prompt. History is untrusted data: check live
+threads before linking. D5 asks whether the reporter or bug matches; use the existing duplicate fields for the same
+bug, or `related_issue` for the same reporter with a different bug. A shared reporter does not prove a duplicate.
+Keep fresh runs on the same checkout/state directory to share memory; shards retain their own state.
+
+For a long-running agent, use a small local wake program that passes the work file to its existing session, for
+example (replace the program and arguments with your agent's wake interface):
+
+```bash
+python3 -X utf8 kit/triage.py dispatch --run 'agent-wake --message-file {work}'
+```
+
+Schedule the following wrapper every five minutes. Use absolute paths and make Python, `gh`, and the agent program
+available in the scheduler's PATH. Save it as `/path/to/kit/wake.sh` and make it executable on Unix:
+
+```sh
+#!/bin/sh
+cd /path/to/kit || exit 1
+exec /path/to/python3 -X utf8 kit/triage.py dispatch --per-issue --max 1 \
+  --run 'your-agent --non-interactive --prompt "Read {kit}/SOLO.md. Handle only {work}; for issue {n}, read {context}."'
+```
+
+**systemd user timer:** save these as `~/.config/systemd/user/triage-wake.service` and `triage-wake.timer`, then run
+`systemctl --user enable --now triage-wake.timer`. Use your absolute wrapper path in the service.
+
+```ini
+# triage-wake.service
+[Unit]
+Description=Check for triage work
+[Service]
+Type=oneshot
+ExecStart=/path/to/kit/wake.sh
+```
+
+```ini
+# triage-wake.timer
+[Unit]
+Description=Check for triage work every five minutes
+[Timer]
+OnStartupSec=1min
+OnUnitInactiveSec=5min
+[Install]
+WantedBy=timers.target
+```
+
+**macOS launchd:** save `~/Library/LaunchAgents/org.example.triage-wake.plist`, then load it with
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.example.triage-wake.plist`.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>org.example.triage-wake</string>
+  <key>ProgramArguments</key><array><string>/path/to/kit/wake.sh</string></array>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+</dict></plist>
+```
+
+**Windows Task Scheduler:** save `C:\path\to\kit\wake.cmd` with the equivalent command and absolute paths:
+
+```bat
+@echo off
+cd /d C:\path\to\kit
+C:\path\to\python.exe -X utf8 kit\triage.py dispatch --per-issue --max 1 --run "C:/path/to/agent-worker.cmd {kit} {n} {context} {work}"
+```
+
+`agent-worker.cmd` is your wrapper for the agent's non-interactive mode, reading SOLO.md and its assigned work file.
+Create the task from a command prompt:
+
+```bat
+schtasks /Create /SC MINUTE /MO 5 /TN "Triage wake" /TR "C:\path\to\kit\wake.cmd" /F
+```
+
+**cron:** add this line with `crontab -e`:
+
+```cron
+*/5 * * * * /path/to/kit/wake.sh >> /path/to/kit/state/logs/wake.log 2>&1
+```
+
+Remove the timer, launch agent, scheduled task or cron entry to stop automatic wakes, then finish or unclaim any
+open work. Dispatch does not retry model API failures; the agent must still stop and tell the user on a 429 or 402.

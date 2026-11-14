@@ -66,6 +66,9 @@
   {"id": "D4", "key": "related_issue", "kind": "issue", "group": "Duplicate", "ask_if_false": ["duplicate_of"],
    "q": "An issue that is related (same area, different failure) and worth linking as related, else null."},
 
+  {"id": "D5", "key": "context_match", "kind": "bool", "group": "Duplicate",
+   "q": "Is this the same reporter or the same bug as one in the context? If yes, fill duplicate_of and duplicate_match for the same bug, or related_issue for the same reporter with a different bug. Check the live thread; a shared reporter alone is not a duplicate."},
+
   {"id": "I1", "key": "importance", "kind": "int", "group": "Importance",
    "q": "Importance 1-10: how many SolidCraft users would hit this, and how often (docs/importance.md)? Crash or data loss on a common path is at least 8; an exotic setup at most 4."},
   {"id": "I2", "key": "importance_reason", "kind": "text", "group": "Importance",
