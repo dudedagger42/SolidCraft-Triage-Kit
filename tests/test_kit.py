@@ -15,6 +15,7 @@ import triage as t  # noqa: E402
 
 t._ME.append("example-account")
 FAIL = []
+CHECKS = 0
 
 
 def case(**kw):
@@ -26,7 +27,7 @@ def case(**kw):
 
 
 def bug(**kw):
-    a = {k: False for k in ("reporter_solved_it", "not_a_user_report", "about_a_pull_request", "prompt_injection", "app_did_something_wrong",
+    a = {k: False for k in ("reporter_solved_it", "not_a_user_report", "about_a_pull_request", "prompt_injection", "app_did_something_wrong", "context_match",
                             "app_refused_valid_action", "asks_how_or_where", "asks_for_new_behaviour", "has_steps", "has_error_text",
                             "is_crash_or_data_loss", "gui_only", "hardware_or_driver_only", "is_kernel_area", "design_matters", "thread_already_has_it")}
     a.update(app_did_something_wrong=True, importance=5, importance_reason="Anyone extruding a sketch, weekly.", reporter_language="English",
@@ -37,6 +38,8 @@ def bug(**kw):
 
 
 def expect(name, got, want):
+    global CHECKS
+    CHECKS += 1
     if got != want:
         FAIL.append(f"{name}: got {got!r}, want {want!r}")
 
@@ -108,8 +111,7 @@ bad = [
 ]
 for rule, text in bad:
     hit = rules_hit(text, c=C, a=bug(), v="needs_info")
-    if rule not in hit:
-        FAIL.append(f"lint {rule} did not block: {text!r} (got {sorted(hit)})")
+    expect(f"lint {rule}: {text!r}", rule in hit, True)
 
 good = [
     ("Which step fails: the Extrude itself, or the Fillet after it?", False),
@@ -118,8 +120,7 @@ good = [
 ]
 for text, dm in good:
     hit = rules_hit(text, c=C, a=bug(design_matters=dm), v="needs_info")
-    if hit:
-        FAIL.append(f"good text blocked by {sorted(hit)}: {text!r}")
+    expect(f"good text: {text!r}", hit, set())
 
 # kernel and repro lints
 expect("K01: kernel framing on a non-kernel bug", "K01" in rules_hit("This is kernel work in Solidcore. Which face?", c=C, a=bug(), v="needs_info"), True)
@@ -335,10 +336,290 @@ expect("work item: listed developer filing an app report", t.is_work_item(WI("bh
 expect("work item: a user with no sections is still a report", t.is_work_item(WI("reporter1", "it crashes")), False)
 expect("work item: no body", t.is_work_item(WI("ChrisNourse", None)), True)
 
+# ---- wake on work: all GitHub reads are fake, including quota and context searches
+import contextlib, io, threading, time  # noqa: E402
+
+saved_wake = {k: getattr(t, k) for k in ("ghj", "issue_live", "claim_state", "cmd_claim", "dispatch_run", "open_issues_since")}
+saved_cfg = dict(t.CFG)
+work_path = os.path.join(TMP, "work.json")
+t.maintenance_checked("corrections")
+t.maintenance_checked("audit")
+NEW, FOLLOW, REPRO, PRS = [], [], [], []
+QUOTA = [100]
+
+def wake_ghj(*args, inp=None):
+    if args == ("api", "rate_limit"):
+        return {"resources": {k: {"remaining": QUOTA[0]} for k in ("core", "search")}}
+    if args[:2] == ("pr", "list"):
+        return PRS
+    if args[:2] == ("issue", "list"):
+        if "--author" in args:
+            return NEW
+        query = args[args.index("--search") + 1]
+        if query.startswith("involves:"):
+            return FOLLOW + REPRO
+        if query.startswith("commenter:"):
+            return FOLLOW
+        if "still needs to be reproduced" in query:
+            return REPRO
+        raise AssertionError(args)
+    if args[:1] == ("api",) and "comments" in args[1] and "POST" in args:
+        return {"id": 123, "html_url": "https://github.com/example/project/issues/1#issuecomment-123"}
+    raise AssertionError(args)
+
+def wake_issue(n, **kw):
+    d = {"number": n, "title": "Fillet edge fails", "state": "OPEN", "author": {"login": "reporter1"},
+         "body": "", "labels": [{"name": "area:kernel"}], "createdAt": ago(30), "comments": [],
+         "url": f"https://github.com/{t.REPO}/issues/{n}"}
+    d.update(kw)
+    return d
+
+t.ghj = wake_ghj
+t.open_issues_since = lambda hours: NEW
+t.claim_state = lambda n, d=None: {"ok": True, "mine": False, "reason": "free"}
+t.issue_live = lambda n: wake_issue(n)
+NEW[:] = [wake_issue(8101)]
+first = t.waiting_work()
+expect("work: new issue waiting", [(r["kind"], r.get("number")) for r in first], [("new", 8101)])
+with contextlib.redirect_stdout(io.StringIO()) as printed:
+    try:
+        t.cmd_work(argparse.Namespace(json=True))
+    except SystemExit as e:
+        expect("work: exit 0 with work", e.code, 0)
+expect("work: machine-readable list", json.loads(printed.getvalue()), first)
+expect("work: new issue offered once", t.waiting_work(), [])
+expect("dispatch: a prior work check preserves pending launch", t.waiting_work(include_offered=True), first)
+NEW.clear()
+with contextlib.redirect_stdout(io.StringIO()) as printed:
+    try:
+        t.cmd_work(argparse.Namespace(json=True))
+    except SystemExit as e:
+        expect("work: exit 1 with nothing new", e.code, 1)
+expect("work: empty JSON list", json.loads(printed.getvalue()), [])
+FOLLOW[:] = [wake_issue(8102, comments=[cmt("example-account", t.wrap("Which file?"), ago(20)), cmt(next(iter(t.BOTS)), "bot reply", ago(5))])]
+expect("work: bot-only reply ignored", t.waiting_work(), [])
+FOLLOW[0]["comments"].append(cmt("reporter1", "Here is the file", ago(1)))
+expect("work: person's reply is a follow-up", [r["kind"] for r in t.waiting_work()], ["followup"])
+FOLLOW.clear()
+REPRO[:] = [wake_issue(8103, comments=[cmt("other-account", t.wrap(t.CANT_RUN + " @example-account", status="repro_wanted"), ago(5))])]
+expect("work: reproducer ping", [r["kind"] for r in t.waiting_work()], ["repro"])
+REPRO[0]["comments"][0]["body"] = t.wrap(t.CANT_RUN, status="repro_wanted")
+expect("work: unaddressed repro request does not wake account", t.waiting_work(), [])
+REPRO.clear()
+st = t.jload(work_path)
+st["audit"] = ago(400)
+st["corrections"] = ago(300)
+t.jsave(work_path, st)
+expect("work: maintenance due", [r["kind"] for r in t.waiting_work()], ["corrections", "audit"])
+t.maintenance_checked("audit")
+t.maintenance_checked("corrections")
+
+# Ledger: a real post path appends exactly one summary, with cause and links.
+c = case(number=8201, title="Fillet edge fails", labels=["area:kernel"], built_at=t.now())
+t.jsave(os.path.join(t.CASES, "8201.json"), c)
+t.jsave(os.path.join(t.QUEUE, "8201.json"), {"status": "AUTO-POST", "by": "first", "verdict": "needs_info", "priority": "P2",
+                                         "answers": {"related_issue": 8101}, "final_comment": "Root cause (likely): edge ordering. Which edge?"})
+t.CFG["mode"] = "solo"
+t.cmd_post(argparse.Namespace(n=8201, approve=False))
+ledger = t.jl_read(os.path.join(TMP, "ledger.jsonl"))
+expect("ledger: post appends one line", len(ledger), 1)
+expect("ledger: verdict, area, reporter, cause, related", (ledger[0]["verdict"], ledger[0]["area_labels"], ledger[0]["reporter"], ledger[0]["cause"], ledger[0]["related"]),
+       ("needs_info", ["area:kernel"], "reporter1", "edge ordering. Which edge?", 8101))
+# A no_action decision is memory too, with no GitHub write.
+c2 = case(number=8202, title="Already solved", labels=["area:kernel"])
+t.jsave(os.path.join(t.CASES, "8202.json"), c2)
+t.jsave(os.path.join(t.CASES, "8202.answers.json"), bug(reporter_solved_it=True))
+t.cmd_submit(argparse.Namespace(n=8202, by="first", result=None, comment=None, translation=None, p0=None))
+expect("ledger: no_action decision", t.jl_read(os.path.join(TMP, "ledger.jsonl"))[-1]["verdict"], "no_action")
+FOLLOW[:] = [wake_issue(8203, comments=[cmt("example-account", t.wrap("Which file?"), ago(20)), cmt("reporter1", "Solved", ago(1))])]
+rows = t.followup_items()
+t.jsave(os.path.join(TMP, "followups.json"), rows)
+t.cmd_handled(argparse.Namespace(n=8203, why="Reporter solved it"))
+expect("ledger: handled decision", t.jl_read(os.path.join(TMP, "ledger.jsonl"))[-1]["verdict"], "handled")
+FOLLOW.clear()
+
+# Context: reporter history, 48-hour area/title matches, old/unrelated exclusions, PRs and UTF-8 byte cap.
+t.ledger_append(8301, "duplicate", case(title="Earlier issue", created_at=ago(60)), {"duplicate_of": 8101}, "")
+t.ledger_append(8302, "reproduced", case(author="another-reporter", title="Different title", labels=["area:kernel"]), {}, "")
+t.ledger_append(8303, "needs_info", case(author="another-reporter", title="Fillet edge problem"), {}, "")
+old = dict(t.jl_read(os.path.join(TMP, "ledger.jsonl"))[-1], issue=8304, ts=ago(3000), title="Old same area", area_labels=["area:kernel"])
+t.jl_append(os.path.join(TMP, "ledger.jsonl"), old)
+PRS[:] = [{"number": 70, "title": "Fix #8301", "body": "", "url": ""}]
+pack = open(t.context_pack(8399), encoding="utf-8").read()
+expect("context: reporter history with verdict", "/issues/8301 — duplicate" in pack, True)
+expect("context: recent area issue with verdict", "/issues/8302 — reproduced" in pack, True)
+expect("context: two title words", "/issues/8303 — needs_info" in pack, True)
+expect("context: old area issue excluded", "/issues/8304" in pack, False)
+expect("context: account's related open PR", "/pull/70" in pack, True)
+NEW[:] = [wake_issue(8400 + i, title="界" * 150) for i in range(100)]
+pack = open(t.context_pack(8399), encoding="utf-8").read()
+expect("context: byte cap", len(pack.encode("utf-8")) <= 2048, True)
+NEW.clear()
+old_search, old_sleep = t.search, t.time.sleep
+t.search, t.time.sleep = (lambda *args: []), (lambda seconds: None)
+try:
+    t.cmd_case(argparse.Namespace(n=8399, q=None, no_images=True))
+finally:
+    t.search, t.time.sleep = old_search, old_sleep
+built = t.load_case(8399)
+expect("case: includes shared context", "Context for #8399" in built["shared_context"], True)
+expect("case: context candidates have live state", any(r["number"] == 8301 and r["state"] == "open" for r in built["dup_candidates"]), True)
+expect("prompt: includes shared context", "Context for #8399" in t.build_prompt(built), True)
+expect("context: yes without link blocked", any("D5" in b for b in t.validate(bug(context_match=True), case())), True)
+expect("context: same bug uses existing duplicate verdict", verdict(bug(context_match=True, duplicate_of=8301, duplicate_match="fillet edge"), case()), "duplicate")
+expect("context: ledger candidate accepted", t.validate(bug(context_match=True, duplicate_of=8301, duplicate_match="fillet edge"), case(dup_candidates=[{"number": 8301, "kind": "issue", "state": "open"}])), [])
+expect("context: same reporter different bug stays related", any("#8301" in m for m in t.decide(bug(context_match=True, related_issue=8301), case())[1]), True)
+
+# Regression: three reports about one command arrive within eleven minutes of a claimed fix.
+def same_reporter_claimed_pr_context():
+    saved_reports, saved_prs = list(NEW), list(PRS)
+    start = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
+    at = lambda seconds: (start + dt.timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    reports = [wake_issue(n, author={"login": "reporter-a"}, labels=[], createdAt=at(seconds),
+                          title=f"Extrude profile fails on design {n}")
+               for n, seconds in ((1001, 0), (1002, 600), (1003, 606))]
+    # The claim and its open PR predate both later reports; only the PR body names #1001.
+    t.jl_append(os.path.join(TMP, "ledger.jsonl"), {
+        "ts": at(300), "issue": 1001, "reporter": "reporter-a", "title": reports[0]["title"],
+        "created_at": at(0), "area_labels": [], "verdict": "claimed", "claimed_pr": 2001})
+    try:
+        PRS[:] = [{"number": 2001, "title": "Correct Extrude profile handling", "body": "Fixes #1001",
+                   "url": f"https://github.com/{t.REPO}/pull/2001", "state": "OPEN", "author": {"login": t.me()}}]
+        for extra_count in (0, 20):
+            NEW[:] = reports + [wake_issue(1100 + i, author={"login": "reporter-a"}, labels=[], createdAt=at(-60 * (i + 1)),
+                                          title="Another Extrude report with enough detail to fill the context pack " + str(i))
+                                for i in range(extra_count)]
+            pack = open(t.context_pack(1002, reports[1]), encoding="utf-8").read()
+            prefix = f"context: rapid reporter burst with {extra_count} other reports"
+            expect(prefix + " keeps open PR", f"- Open PR: https://github.com/{t.REPO}/pull/2001 Correct Extrude profile handling" in pack, True)
+            expect(prefix + " keeps claimed sibling", f"- same reporter: https://github.com/{t.REPO}/issues/1001 — claimed:" in pack, True)
+            expect(prefix + " keeps later sibling", f"- same reporter: https://github.com/{t.REPO}/issues/1003 — not in ledger:" in pack, True)
+            expect(prefix + " stays within byte cap", len(pack.encode("utf-8")) <= 2048, True)
+        expect("context: crowded burst exercises truncation", sum(f"/issues/{1100 + i} " in pack for i in range(20)) < 20, True)
+    finally:
+        NEW[:], PRS[:] = saved_reports, saved_prs
+
+
+same_reporter_claimed_pr_context()
+
+# Dispatcher: real scheduler, fake agent launches; deterministic simultaneous worker measurement.
+LAUNCHES, active, peak = [], [0], [0]
+mutex = threading.Lock()
+barrier = threading.Barrier(2)
+
+def fake_run(argv, env, item):
+    with mutex:
+        active[0] += 1
+        peak[0] = max(peak[0], active[0])
+        LAUNCHES.append((argv, env, item))
+    if item.get("number") in (8502, 8503):
+        barrier.wait(timeout=5)
+    time.sleep(0.01)
+    with mutex:
+        active[0] -= 1
+    return {"issue": item.get("number"), "kind": item["kind"], "exit_code": 0, "duration_s": 0.01, "output_tail": "done"}
+
+CLAIMS = []
+def fake_claim(a):
+    CLAIMS.append(a.n)
+    if a.n == 8501:
+        raise SystemExit("held by a peer")
+
+t.cmd_claim, t.dispatch_run = fake_claim, fake_run
+# Clear pending work previously offered by the CLI.
+t.jsave(work_path, {"new": [], "audit": t.now(), "corrections": t.now(), "audit_posts": len(t.jl_read(t.POSTED))})
+NEW[:] = [wake_issue(n) for n in (8501, 8502, 8503, 8504)]
+da = argparse.Namespace(run='agent --issue {n} --context "{context}" --kit "{kit}" --work "{work}"', per_issue=True, max=2, dry_run=False)
+t.cmd_dispatch(da)
+expect("dispatch: refused claim skipped", {x[2]["number"] for x in LAUNCHES}, {8502, 8503, 8504})
+expect("dispatch: maximum respected and reached", peak[0], 2)
+expect("dispatch: claim before each launch", set(CLAIMS), {8501, 8502, 8503, 8504})
+expect("dispatch: context environment", all(x[1]["TRIAGE_N"] == str(x[2]["number"]) and os.path.exists(x[1]["TRIAGE_CONTEXT"]) for x in LAUNCHES), True)
+expect("dispatch: one log per launch", len(t.jl_read(os.path.join(t.LOGS, "dispatch.jsonl"))), 3)
+NEW.clear()
+LAUNCHES.clear()
+t.cmd_dispatch(da)
+expect("dispatch: nothing waiting means no run", LAUNCHES, [])
+os.mkdir(os.path.join(TMP, "dispatch.lock"))
+try:
+    try:
+        t.cmd_dispatch(da)
+        FAIL.append("dispatch: second dispatcher bypassed lock")
+    except SystemExit as e:
+        expect("dispatch: lock blocks second dispatcher", "already running" in str(e), True)
+finally:
+    os.rmdir(os.path.join(TMP, "dispatch.lock"))
+NEW[:] = [wake_issue(8505)]
+da.dry_run = True
+before = t.jload(work_path)
+t.cmd_dispatch(da)
+expect("dispatch: dry run launches nothing, consumes nothing", (LAUNCHES, t.jload(work_path)), ([], before))
+da.dry_run = False
+QUOTA[0] = 0
+t.cmd_dispatch(da)
+expect("dispatch: low quota launches nothing, consumes nothing", (LAUNCHES, t.jload(work_path)), ([], before))
+QUOTA[0] = 100
+da.per_issue = False
+t.cmd_dispatch(da)
+expect("dispatch: batch run gets work file", len(LAUNCHES), 1)
+expect("dispatch: batch work file contains issue", t.jload(LAUNCHES[0][1]["TRIAGE_WORK"])[0]["number"], 8505)
+# Exercise the actual process runner without network or an agent executable.
+result = saved_wake["dispatch_run"]([sys.executable, "-c", "import os,sys; print(os.environ['TRIAGE_N']); sys.exit(7)"],
+                                     dict(os.environ, TRIAGE_N="8505"), {"number": 8505, "kind": "new"})
+expect("dispatch: exit code and output captured", (result["exit_code"], result["output_tail"].strip()), (7, "8505"))
+expect("dispatch: duration recorded", result["duration_s"] >= 0, True)
+# Every already-started run is logged even when preparing a later context fails.
+old_context = t.context_pack
+NEW[:] = [wake_issue(8601), wake_issue(8602)]
+da.per_issue = True
+log_before = len(t.jl_read(os.path.join(t.LOGS, "dispatch.jsonl")))
+def broken_context(n, *args):
+    if n == 8601:  # newest first: 8602 has already started
+        raise RuntimeError("context read failed")
+    return old_context(n, *args)
+t.context_pack = broken_context
+try:
+    t.cmd_dispatch(da)
+    FAIL.append("dispatch: expected context error")
+except RuntimeError as e:
+    expect("dispatch: context error reported", str(e), "context read failed")
+finally:
+    t.context_pack = old_context
+expect("dispatch: prior run logged on preparation error", len(t.jl_read(os.path.join(t.LOGS, "dispatch.jsonl"))), log_before + 1)
+expect("dispatch: error releases dispatcher lock", os.path.exists(os.path.join(TMP, "dispatch.lock")), False)
+NEW[:] = [wake_issue(8603)]
+def failed_run(*args):
+    return dict(fake_run(*args), exit_code=7)
+t.dispatch_run = failed_run
+try:
+    t.cmd_dispatch(da)
+    FAIL.append("dispatch: failed run should exit 1")
+except SystemExit as e:
+    expect("dispatch: failed run propagates failure", e.code, 1)
+expect("dispatch: failed run logged", t.jl_read(os.path.join(t.LOGS, "dispatch.jsonl"))[-1]["exit_code"], 7)
+# The posting lock covers the call itself, including its gap check and GitHub write.
+post_active, post_peak = [0], [0]
+@t.serial_post
+def fake_post():
+    with mutex:
+        post_active[0] += 1
+        post_peak[0] = max(post_peak[0], post_active[0])
+    time.sleep(0.02)
+    with mutex:
+        post_active[0] -= 1
+with t.concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    list(pool.map(lambda n: fake_post(), range(2)))
+expect("post: concurrent calls serialized", post_peak[0], 1)
+for k, v in saved_wake.items():
+    setattr(t, k, v)
+t.CFG.clear()
+t.CFG.update(saved_cfg)
+
+
 def main():
     for f in FAIL:
         print("FAIL", f)
-    print(f"selftest: {len(FAIL)} failure(s)")
+    print(f"selftest: {CHECKS} checks, {len(FAIL)} failure(s)")
     return 1 if FAIL else 0
 
 

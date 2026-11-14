@@ -15,5 +15,8 @@
  "takeover_after_h": 24,
  "post_gap_s": 6,
  "comment_limit": {"first": 900, "repro": 2400, "reply": 900},
- "correction_check_h": 4
+ "correction_check_h": 4,
+ "audit_check_h": 6,
+ "audit_after_posts": 20,
+ "dispatch_quota_floor": 10
 }
