@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.32 (2026-11-15): failure ID v1: same ID only for the same bug. Answers give fail {tt, mm, error, error_text}; kit/failid.py checks the quote and makes TT MM K SSSSSS (11 hex), marker sc-fail-id v1; E0 split E0/E2/E3 (docs/fail-id.md)
 - v2.31 (2026-11-15): kit checks for updates itself: any command fetches at most every 4 h and fast-forwards a clean main checkout, otherwise says to git pull; triage.py update checks now (Gabe 2026-11-15: every 4-8 h)
 - v2.30 (2026-11-15): failure ID dry run (Gabe 2026-11-15): answers carry fail_id (5 hex digits, docs/fail-id.md); posted first-pass comments add a hidden <!-- sc-fail-id v0 XXXXX --> line; never changes a verdict
 - v2.27 (2026-11-10): R003's message says what it matched: the words 'reproduce it/this' or 'reproduced' in the comment, with a rewording for an ask ('so we can try it'). Haiku lanes read 'a bug with steps or a file is needs_repro' as a verdict check and left needs_info asks unposted (#14698, #14722)

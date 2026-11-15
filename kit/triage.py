@@ -154,12 +154,14 @@ def header():
     return f"**Triage by {me()}:**"
 
 
-FAIL_ID_RE = re.compile(r"^[0-9A-F]{5,6}$")
+FAIL_ID_RE = re.compile(r"^(?:[0-9A-F]{5,6}|[0-9A-F]{11})$")
 
 
 def fail_id_line(fid):
     """Dry run (Gabe 2026-11-15): the failure ID rides in its own hidden line, never in the visible text."""
-    return f"\n<!-- sc-fail-id v0 {fid} -->" if fid and FAIL_ID_RE.match(str(fid)) else ""
+    if not (fid and FAIL_ID_RE.match(str(fid))):
+        return ""
+    return f"\n<!-- sc-fail-id {'v1' if len(str(fid)) == 11 else 'v0'} {fid} -->"
 
 
 def wrap(text, status=None, head=True, fid=None):
@@ -795,6 +797,15 @@ def load_answers(n):
     return json.loads(m.group(0))
 
 
+def fail_code(f, case):
+    """Failure ID v1: the lane gives TT, MM and the program's message; failid.py makes K and the signature."""
+    import failid
+    state, err = f.get("error"), f.get("error_text") or ""
+    if state == "quoted" and failid.flat(err)[:200] not in failid.flat((case.get("title") or "") + (case.get("body") or "")):
+        state = "mentioned"  # a message not in the report word for word is no signature
+    return failid.make(f.get("tt", "FF"), f.get("mm", "FF"), err, state)
+
+
 def validate(ans, case):
     bad = []
     for q in questions():
@@ -809,9 +820,15 @@ def validate(ans, case):
             bad.append(f"{q['id']} `{k}` must be an issue number or null")
         elif q["kind"] in ("text", "language") and not isinstance(v, str):
             bad.append(f"{q['id']} `{k}` must be a string")
+    f = ans.get("fail")
+    if f is not None:
+        if not (isinstance(f, dict) and f.get("error") in ("quoted", "mentioned", "none")):
+            bad.append("F1 `fail` must be {tt, mm, error: quoted|mentioned|none, error_text}, see docs/fail-id.md")
+        else:
+            ans["fail_id"], ans["fail_key"] = fail_code(f, case)
     fid = ans.get("fail_id")
     if fid is not None and not (isinstance(fid, str) and FAIL_ID_RE.match(fid)):
-        bad.append("F1 `fail_id` must be 5 or 6 hex digits, capitals (0-9, A-F), see docs/fail-id.md, or null")
+        bad.append("F1 `fail_id` must be 11 hex digits (v1) or 5-6 (v0), capitals (0-9, A-F), see docs/fail-id.md, or null")
     if ans.get("confidence") not in ("sure", "unsure"):
         bad.append("C1 `confidence` must be sure or unsure")
     if isinstance(ans.get("importance_reason"), str) and len(ans["importance_reason"].strip()) < 12:

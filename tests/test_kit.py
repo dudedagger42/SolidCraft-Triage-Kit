@@ -157,6 +157,11 @@ expect("fail-id keeps the kit marker", bool(t.MARKER_RE.search(t.wrap("x", fid="
 expect("bad fail-id dropped", "sc-fail-id" in t.wrap("x", fid="4g1"), False)
 expect("no fail-id, no line", "sc-fail-id" in t.wrap("x"), False)
 expect("fail-id format", [bool(t.FAIL_ID_RE.match(x)) for x in ("40101", "0A10F3", "4010", "40l01", "abcde")], [True, True, False, False, False])
+expect("fail-id v1 marker", t.wrap("x", fid="40103A1C4F8").endswith("<!-- sc-fail-id v1 40103A1C4F8 -->"), True)
+_fc = {"title": "FILLET: operation failed", "body": 'error "SMLib fillet: operation: the blend failed (status 1001): the fillet body is not built: Fillet Surface Computation Failure"'}
+expect("fail-id v1 from a quoted message", t.fail_code({"tt": "40", "mm": "10", "error": "quoted", "error_text": "SMLib fillet: operation: the blend failed (status 1001): the fillet body is not built: Fillet Surface Computation Failure"}, _fc)[0], "40103A1C4F8")
+expect("fail-id v1: a quote not in the report counts as mentioned", t.fail_code({"tt": "40", "mm": "10", "error": "quoted", "error_text": "something else entirely went wrong"}, _fc)[0], "4010F000000")
+expect("fail-id v1: no message", t.fail_code({"tt": "04", "mm": "E2", "error": "none", "error_text": ""}, _fc)[0], "04E20000000")
 expect("note status parsed", t.MARKER_RE.search(t.wrap("Reproducing on 0.25.1.", status="reproducing")).group(2), "reproducing")
 
 # ---- translations: a posted comment's appended translation is linted apart (#7678 false positives)
