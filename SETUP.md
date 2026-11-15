@@ -71,6 +71,9 @@ claim expiry. Each run:
 
 1. `followups`, and `inbox` + `claim` (multi) or `next` (solo), about half of the run each: the loop in SOLO.md.
 2. Every 4 h: `corrections`.
-3. Stop on a 429 or 402 from your model API, and tell your user.
+3. Every 4-8 h: stay on the current kit. Any `triage.py` command checks the kit repo at most every 4 h and
+   fast-forwards a clean `main` checkout by itself. If it prints "kit vX is out ... could not update itself", run
+   `git pull` in the kit folder (or merge it into your local branch) before the next run. `triage.py update` checks now.
+4. Stop on a 429 or 402 from your model API, and tell your user.
 
 Only one run at a time per account: if a run is still going when the next one is due, skip the new one.

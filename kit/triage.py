@@ -1098,6 +1098,50 @@ def cmd_submit(a):
     say(r["line_item"])
 
 
+
+# ---------------------------------------------------------------- kit updates (Gabe 2026-11-15: every 4-8 h)
+UPDATE_EVERY_S = 4 * 3600
+
+
+def _ver_key(v):
+    try:
+        return tuple(int(x) for x in v.strip().lstrip("v").split("."))
+    except ValueError:
+        return (0,)
+
+
+def update_check(force=False):
+    """At most every 4 h: fetch the kit repo; if origin/main has a newer VERSION, fast-forward when the checkout is on
+    main with no local commits, otherwise print what to do. Never stops the command. TRIAGE_NO_UPDATE=1 turns it off."""
+    if os.environ.get("TRIAGE_NO_UPDATE") == "1":
+        return
+    stamp = os.path.join(STATE, "update-check.json")
+    last = jload(stamp) or {}
+    if not force and time.time() - float(last.get("t") or 0) < UPDATE_EVERY_S:
+        if last.get("latest") and _ver_key(last["latest"]) > _ver_key(VERSION):
+            say(f"kit v{last['latest']} is out (this checkout is v{VERSION}): `git pull` in {ROOT}")
+        return
+    git = lambda *a: subprocess.run(["git", "-C", ROOT, *a], capture_output=True, text=True, encoding="utf-8")
+    latest = None
+    if git("fetch", "-q", "origin", "main").returncode == 0:
+        latest = git("show", "origin/main:VERSION").stdout.strip() or None
+    os.makedirs(STATE, exist_ok=True)
+    jsave(stamp, {"t": time.time(), "latest": latest, "checked_at": now()})
+    if not latest or _ver_key(latest) <= _ver_key(VERSION):
+        return
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    r = git("merge", "--ff-only", "-q", "origin/main") if branch == "main" else None
+    if r is not None and r.returncode == 0:
+        say(f"kit updated v{VERSION} -> v{latest} (fast-forward). This command runs on v{VERSION}; the next one uses v{latest}.")
+    else:
+        why = f"on branch {branch}" if branch != "main" else (r.stderr.strip().splitlines() or ["not a fast-forward"])[-1]
+        say(f"kit v{latest} is out (this checkout is v{VERSION}) and could not update itself ({why}): `git pull` in {ROOT}")
+
+
+def cmd_update(a):
+    """Check for a newer kit now (normally automatic, at most every 4 h, before any command)."""
+    update_check(force=True)
+
 # ---------------------------------------------------------------- post / fix
 def gap_wait():
     """At least post_gap_s between posts from this machine (one account: keep one machine posting at a time)."""
@@ -1539,7 +1583,10 @@ def main():
     add("rootcause", cmd_rootcause, (["text"], {}), (["--cmd"], {}), (["--fetch"], dict(action="store_true")))
     add("status", cmd_status, (["--limit"], dict(type=int, default=30)))
     add("selftest", cmd_selftest)
+    add("update", cmd_update)
     a = ap.parse_args()
+    if a.fn not in (cmd_selftest, cmd_bump, cmd_update):
+        update_check()
     a.fn(a)
 
 
