@@ -74,6 +74,9 @@
   {"id": "L1", "key": "reporter_language", "kind": "language", "group": "Language",
    "q": "Which language did the reporter write in? ('English', or the language's name.)"},
 
+  {"id": "F1", "key": "fail_id", "kind": "failid", "group": "Failure ID",
+   "q": "Dry run: the failure ID from the Failure ID tables, 5 hex digits TT MM F (tool, how it failed, how specific). It goes in the comment's hidden marker and never changes the verdict. Put a short reason, or what no code fits, in `fail_id_note`."},
+
   {"id": "C1", "key": "confidence", "kind": "text", "group": "Confidence",
    "q": "'sure' or 'unsure'. Unsure answers go to review instead of posting; a wrong confident answer is much worse than an honest unsure."},
   {"id": "C2", "key": "notes", "kind": "text", "group": "Confidence",

@@ -151,6 +151,12 @@ r = t.wrap("Does 0.25.1 still fail?", head=False)
 expect("reply has no header", r.startswith("Does 0.25.1 still fail?") and not t.HEADER_RE.search(r), True)
 expect("reply still marked as triage", t.is_triage(r), True)
 expect("old marker parsed", bool(t.MARKER_RE.search("<!-- solidcraft-triage-kit v2.0 -->")), True)
+t._ME[:] = t._ME or ["tester"]
+expect("fail-id line added", t.wrap("x", fid="40101").endswith("<!-- sc-fail-id v0 40101 -->"), True)
+expect("fail-id keeps the kit marker", bool(t.MARKER_RE.search(t.wrap("x", fid="40101"))), True)
+expect("bad fail-id dropped", "sc-fail-id" in t.wrap("x", fid="4g1"), False)
+expect("no fail-id, no line", "sc-fail-id" in t.wrap("x"), False)
+expect("fail-id format", [bool(t.FAIL_ID_RE.match(x)) for x in ("40101", "0A10F3", "4010", "40l01", "abcde")], [True, True, False, False, False])
 expect("note status parsed", t.MARKER_RE.search(t.wrap("Reproducing on 0.25.1.", status="reproducing")).group(2), "reproducing")
 
 # ---- translations: a posted comment's appended translation is linted apart (#7678 false positives)

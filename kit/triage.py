@@ -154,12 +154,21 @@ def header():
     return f"**Triage by {me()}:**"
 
 
-def wrap(text, status=None, head=True):
+FAIL_ID_RE = re.compile(r"^[0-9A-F]{5,6}$")
+
+
+def fail_id_line(fid):
+    """Dry run (Gabe 2026-11-15): the failure ID rides in its own hidden line, never in the visible text."""
+    return f"\n<!-- sc-fail-id v0 {fid} -->" if fid and FAIL_ID_RE.match(str(fid)) else ""
+
+
+def wrap(text, status=None, head=True, fid=None):
     """Header + text + hidden marker. The marker carries the kit version (and `status=reproducing` on a claim note,
     `status=repro_wanted` on a could-not-run comment that asks for a reproducer). Only the account's first comment in a
     thread carries the header; a reply (`head=False`) has the marker alone."""
     t = HEADER_RE.sub("", text.strip(), count=1).strip() if text.lstrip().startswith("**") else text.strip()
     mark = MARKER if not status else MARKER.replace(" -->", f" status={status} -->")
+    mark += fail_id_line(fid)
     return f"{header()} {t}\n\n{mark}" if head else f"{t}\n\n{mark}"
 
 
@@ -758,7 +767,9 @@ def compact_case(c):
 def build_prompt(c):
     t = open(os.path.join(ROOT, "docs", "prompt.md"), encoding="utf-8").read()
     clusters = open(os.path.join(ROOT, "docs", "duplicate-clusters.md"), encoding="utf-8").read()
-    return (t.replace("{{QUESTIONS}}", render_questions()).replace("{{CLUSTERS}}", clusters)
+    fid = open(os.path.join(ROOT, "docs", "fail-id.md"), encoding="utf-8").read()
+    t = t if "{{FAILID}}" in t else t.replace("{{CASE}}", "{{FAILID}}\n\n{{CASE}}", 1)
+    return (t.replace("{{FAILID}}", fid).replace("{{QUESTIONS}}", render_questions()).replace("{{CLUSTERS}}", clusters)
              .replace("{{RELEASE}}", str(c.get("current_release"))).replace("{{CASE}}", compact_case(c)))
 
 
@@ -798,6 +809,9 @@ def validate(ans, case):
             bad.append(f"{q['id']} `{k}` must be an issue number or null")
         elif q["kind"] in ("text", "language") and not isinstance(v, str):
             bad.append(f"{q['id']} `{k}` must be a string")
+    fid = ans.get("fail_id")
+    if fid is not None and not (isinstance(fid, str) and FAIL_ID_RE.match(fid)):
+        bad.append("F1 `fail_id` must be 5 or 6 hex digits, capitals (0-9, A-F), see docs/fail-id.md, or null")
     if ans.get("confidence") not in ("sure", "unsure"):
         bad.append("C1 `confidence` must be sure or unsure")
     if isinstance(ans.get("importance_reason"), str) and len(ans["importance_reason"].strip()) < 12:
@@ -1100,17 +1114,18 @@ def mine_on(d):
     return [c for c in d["comments"] if c["author"]["login"] == me() and is_triage(c["body"])]
 
 
-def post_comment(n, text, status=None, d=None, by="first", extra=None):
+def post_comment(n, text, status=None, d=None, by="first", extra=None, fid=None):
     d = d or issue_live(n)
     head = not mine_on(d)  # the header opens the account's part of the thread once; replies carry only the marker
     if dry_run():
-        jl_append(os.path.join(LOGS, "dryrun.jsonl"), {"ts": now(), "issue": n, "text": wrap(text, status, head)})
-        say(wrap(text, status, head))
+        jl_append(os.path.join(LOGS, "dryrun.jsonl"), {"ts": now(), "issue": n, "text": wrap(text, status, head, fid)})
+        say(wrap(text, status, head, fid))
         return say(f"DRY RUN #{n}: the comment above was not posted; logged to state/logs/dryrun.jsonl")
     gap_wait()
-    out = ghj("api", f"repos/{REPO}/issues/{n}/comments", "-X", "POST", "-F", "body=@-", inp=wrap(text, status, head))
+    out = ghj("api", f"repos/{REPO}/issues/{n}/comments", "-X", "POST", "-F", "body=@-", inp=wrap(text, status, head, fid))
     open(LASTPOST, "w").write(str(time.time()))
-    jl_append(POSTED, {"ts": now(), "issue": n, "comment_id": out["id"], "url": out["html_url"], "by": by, "status": status, "text": text, **(extra or {})})
+    jl_append(POSTED, {"ts": now(), "issue": n, "comment_id": out["id"], "url": out["html_url"], "by": by, "status": status, "text": text,
+                       **({"fail_id": fid} if fid else {}), **(extra or {})})
     say(f"posted #{n}: {out['html_url']}")
     return out
 
@@ -1172,7 +1187,8 @@ def cmd_post(a):
                    if c["user"]["login"] == me() and (MARKER_RE.search(c["body"] or "") or [None, None, None])[2] == "reproducing")
         edit_comment(a.n, cid, text, "result replaces the 'Reproducing on' note")
     else:
-        post_comment(a.n, text, d=d, by=q["by"], extra={"verdict": q["verdict"], "priority": q["priority"]})
+        post_comment(a.n, text, d=d, by=q["by"], extra={"verdict": q["verdict"], "priority": q["priority"]},
+                     fid=(q.get("answers") or {}).get("fail_id"))
     if dry_run():  # keep it queued, so the live `post N` can follow once dry run is off
         q["dry_run_at"] = now()
     else:
