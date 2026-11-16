@@ -162,6 +162,19 @@ _fc = {"title": "FILLET: operation failed", "body": 'error "SMLib fillet: operat
 expect("fail-id v1 from a quoted message", t.fail_code({"tt": "40", "mm": "10", "error": "quoted", "error_text": "SMLib fillet: operation: the blend failed (status 1001): the fillet body is not built: Fillet Surface Computation Failure"}, _fc)[0], "40103A1C4F8")
 expect("fail-id v1: a quote not in the report counts as mentioned", t.fail_code({"tt": "40", "mm": "10", "error": "quoted", "error_text": "something else entirely went wrong"}, _fc)[0], "4010F000000")
 expect("fail-id v1: no message", t.fail_code({"tt": "04", "mm": "E2", "error": "none", "error_text": ""}, _fc)[0], "04E20000000")
+# repro submits build the v1 ID too (2026-11-16: repro posts carried no fail ID)
+import argparse as _ap  # noqa: E402
+os.makedirs(t.CASES, exist_ok=True)
+json.dump(dict(_fc, number=99001, labels=[], comments=[], state="OPEN", author="someone"), open(os.path.join(t.CASES, "99001.json"), "w", encoding="utf-8"))
+json.dump({"fail": {"tt": "40", "mm": "10", "error": "quoted", "error_text": "SMLib fillet: operation: the blend failed (status 1001): the fillet body is not built: Fillet Surface Computation Failure"}},
+          open(os.path.join(t.CASES, "99001.answers.json"), "w", encoding="utf-8"))
+open(os.path.join(t.CASES, "99001.comment.md"), "w", encoding="utf-8").write("Result: reproduced on main with your steps. Root cause (unknown): not traced.")
+try:
+    t.cmd_submit(_ap.Namespace(n=99001, by="sonnet", comment=None, translation=None, result="reproduced", p0=None))
+except SystemExit:
+    pass
+_q = json.load(open(os.path.join(t.QUEUE, "99001.json"), encoding="utf-8"))
+expect("fail-id v1 on a repro submit", _q["answers"].get("fail_id"), "40103A1C4F8")
 expect("note status parsed", t.MARKER_RE.search(t.wrap("Reproducing on 0.25.1.", status="reproducing")).group(2), "reproducing")
 
 # ---- translations: a posted comment's appended translation is linted apart (#7678 false positives)

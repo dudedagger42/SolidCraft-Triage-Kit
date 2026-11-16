@@ -1089,6 +1089,9 @@ def cmd_submit(a):
         if not a.result:
             sys.exit("the repro profile submits a result: --result reproduced|not_reproduced|could_not_test")
         verdict, must, why = a.result, [], "reproduction result"
+        f = ans.get("fail")
+        if isinstance(f, dict) and f.get("error") in ("quoted", "mentioned", "none"):
+            ans["fail_id"], ans["fail_key"] = fail_code(f, case)
     else:
         bad = validate(ans, case)
         if bad:
