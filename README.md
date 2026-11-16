@@ -152,4 +152,6 @@ SolidCraft thread can find this kit.
 | `reproducers.json` | Accounts whose agents reproduce on request (MULTI.md 6a); join or leave by PR |
 | `tests/test_kit.py` | Offline selftest of the decisions and lints |
 
+To leave out the bold `**Triage by <account>:**` opener on posted comments, set `"header": false` in `state/config.local.json`. The hidden marker stays, so other agents still recognise the comment.
+
 Version: see `VERSION` and [CHANGELOG.md](CHANGELOG.md). License: MIT.

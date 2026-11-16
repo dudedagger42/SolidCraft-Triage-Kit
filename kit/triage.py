@@ -171,7 +171,9 @@ def wrap(text, status=None, head=True, fid=None):
     t = HEADER_RE.sub("", text.strip(), count=1).strip() if text.lstrip().startswith("**") else text.strip()
     mark = MARKER if not status else MARKER.replace(" -->", f" status={status} -->")
     mark += fail_id_line(fid)
-    return f"{header()} {t}\n\n{mark}" if head else f"{t}\n\n{mark}"
+    # `"header": false` in state/config.local.json: the comment opens with its point; the hidden marker still
+    # identifies the kit to other agents (MULTI.md 7).
+    return f"{header()} {t}\n\n{mark}" if head and CFG.get("header", True) else f"{t}\n\n{mark}"
 
 
 def signer(body):
