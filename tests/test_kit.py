@@ -217,6 +217,11 @@ expect("repro wanted parsed", t.repro_wanted([want])[1], None)
 expect("plain triage is not repro wanted", t.repro_wanted([cmt("other-account", t.wrap("Which file?"), t1)]), None)
 repro = cmt("example-account", t.wrap("Reproduced on 0.25.1: it crashes."), t2)
 expect("reproducer's comment found", t.repro_wanted([want, repro])[1]["author"]["login"], "example-account")
+xref = lambda repo, num: {"event": "cross-referenced", "source": {"issue": {
+    "number": num, "state": "open", "pull_request": {"url": "pr"}, "repository": {"full_name": repo},
+    "repository_url": "https://api.github.com/repos/" + repo}}}
+expect("linked PR: other repo's PR not counted", t.prs_in_timeline([xref("someone/stress-corpus", 112)]), [])
+expect("linked PR: own repo's PR counted", t.prs_in_timeline([xref(t.REPO, 18308)]), [18308])
 t.linked_prs, t.maintainers = (lambda n: []), (lambda: set())
 issue = {"state": "OPEN", "labels": [], "author": {"login": "reporter1"}, "createdAt": old_ago, "comments": [want]}
 t.reactions = lambda n, content: [{"user": {"login": "other-account"}, "created_at": t1, "id": 1}] if content == "rocket" else []

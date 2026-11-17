@@ -233,18 +233,25 @@ def issue_live(n):
     return ghj("issue", "view", str(n), "-R", REPO, "--json", "number,title,state,labels,author,createdAt,comments,url,body")
 
 
-def linked_prs(n):
+def prs_in_timeline(events):
+    """Open PRs of REPO itself that cross-reference the issue; a PR in another repo with the same number is not one."""
     out = []
-    try:
-        for e in ghj("api", f"repos/{REPO}/issues/{n}/timeline?per_page=100", "-H", "Accept: application/vnd.github+json"):
-            src = (e.get("source") or {}).get("issue") or {}
-            if e.get("event") == "cross-referenced" and src.get("pull_request") and src.get("state") == "open":
-                out.append(src["number"])
-            elif e.get("event") == "connected":
-                out.append("connected")
-    except RuntimeError:
-        pass
+    for e in events:
+        src = (e.get("source") or {}).get("issue") or {}
+        same_repo = (src.get("repository") or {}).get("full_name", "").lower() == REPO.lower() or \
+            (src.get("repository_url") or "").lower().endswith("/repos/" + REPO.lower())
+        if e.get("event") == "cross-referenced" and src.get("pull_request") and src.get("state") == "open" and same_repo:
+            out.append(src["number"])
+        elif e.get("event") == "connected":
+            out.append("connected")
     return out
+
+
+def linked_prs(n):
+    try:
+        return prs_in_timeline(ghj("api", f"repos/{REPO}/issues/{n}/timeline?per_page=100", "-H", "Accept: application/vnd.github+json"))
+    except RuntimeError:
+        return []
 
 
 def reactions(n, content):
