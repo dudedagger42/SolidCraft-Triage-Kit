@@ -902,16 +902,16 @@ def _decide(ans, case):
     if k == "support":
         if ans.get("app_already_does_it") or ans.get("can_answer_from_facts"):
             return "support_answer", ["say where it is: " + (ans.get("where_it_is") or "from your app check"), "no question unless one is needed"], "answerable from checked facts"
-        return ("needs_info", [f"ask: {q}"], "a usage question you cannot answer from checked facts") if q else ("no_action", [], "a usage question you cannot answer: unsure, for review")
+        return ("needs_info", [f"ask: {q}"], "a usage question you cannot answer from checked facts") if q else ("needs_info", ["name what is still missing to act on it (version, steps, the design zipped, a screenshot), one short ask", "if nobody can run it yet, say: I can only triage here; this still needs to be reproduced"], "a usage question you cannot answer: ask what is needed (Gabe 2026-11-18: every new issue gets a comment)")
     if k == "enhancement":
         return "feature_note", ["say whether it exists (link) or is new, from app_check", "at most one scoping question"], "a request for new behaviour"
     if k == "unclear":
-        return ("needs_info", [f"ask: {q}"], "unclear what is reported") if q else ("no_action", [], "unclear, and no pointed question")
+        return ("needs_info", [f"ask: {q}"], "unclear what is reported") if q else ("needs_info", ["name what is still missing to act on it (version, steps, the design zipped, a screenshot), one short ask", "if nobody can run it yet, say: I can only triage here; this still needs to be reproduced"], "unclear: ask what is needed (Gabe 2026-11-18: every new issue gets a comment)")
     # a bug
     if case.get("crash_user_steps"):
         return "needs_repro", [], "a crash report with the reporter's own steps: someone must try them on the current build"
     if len(case.get("crash_cluster") or []) >= 2 and not runnable and not case.get("crash_backtrace"):
-        return "no_action", [], "empty same-version crash report: log it (crashes CSV), no comment"
+        return "needs_info", ["name what is still missing to act on it (version, steps, the design zipped, a screenshot), one short ask", "if nobody can run it yet, say: I can only triage here; this still needs to be reproduced"], "empty same-version crash report: log it (crashes CSV) and ask for steps and the design (Gabe 2026-11-18)"
     if ans.get("sibling_already_asked"):
         return "needs_info", [f"point to #{ans['sibling_already_asked']} where the same step was already asked about, instead of a new question",
                               "a modelling failure with no file still needs the zip line"], "sibling issue already asked"
@@ -920,7 +920,7 @@ def _decide(ans, case):
     if runnable or (ans.get("has_error_text") and case.get("command_ids") and not no_design):
         return "needs_repro", [], "steps, a script or a runnable file: someone must run it on the current build"
     if case.get("bot_asked") and not q:
-        return "no_action", [], "the bot already asked for steps/version/OS and you have nothing pointed to add"
+        return "needs_info", ["name what is still missing to act on it (version, steps, the design zipped, a screenshot), one short ask", "if nobody can run it yet, say: I can only triage here; this still needs to be reproduced"] + ["the bot already asked: do not repeat its questions word for word; name only what is still missing"], "bot already asked; still comment (Gabe 2026-11-18: every new issue gets a comment)"
     if ans.get("thread_already_has_it") and not q:
         return "no_action", [], "the thread already has what you would ask for"
     if ans.get("hardware_or_driver_only"):

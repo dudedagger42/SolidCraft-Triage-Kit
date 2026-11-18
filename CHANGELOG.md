@@ -2,6 +2,7 @@
 
 One line per merged change. Every merge bumps the minor version by one, two digits (2.01 ... 2.99, then 2.100) (`triage.py bump`); the comment marker follows it.
 
+- v2.36 (2026-11-18): every new issue gets a triage comment (Gabe 2026-11-18): unanswerable usage questions, unclear reports, empty same-version crash reports and threads the bot already asked on are needs_info with a short ask for what is missing, not no_action; complete reports (needs_repro) still post nothing
 - v2.35 (2026-11-17): linked-PR check counts only PRs in the upstream repo; a cross-reference from another repo's PR with the same number blocked claim/post (#18274, sonnet-2 kit-bug note 2026-11-17)
 - v2.34 (2026-11-17): failure IDs stopped (Gabe 2026-11-17): the F1 `fail` question is gone from the checklist, so lanes no longer spend tokens on it. A `fail` block that is still sent is accepted and ignored for the verdict, as before.
 - v2.33 (2026-11-16): repro submits (--by sonnet --result ...) build the failure ID v1 from the answers' fail block, like first-pass answers; repro posts carried no fail ID
