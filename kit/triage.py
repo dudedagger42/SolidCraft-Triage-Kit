@@ -989,6 +989,28 @@ def grammar_lints(text):
     return out
 
 
+VER = r"v?\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?"
+NEGATION = re.compile(r"\b(?:no|without|lacks?|lacking|missing|can't|cannot|can not|couldn't|could not|don't|do not|didn't|did not|"
+                      r"doesn't|does not|isn't|is not|wasn't|was not|unavailable|before|older than)\b", re.I)
+
+
+def tested_versions(text):
+    """Versions a comment says it ran on: '<Tested|Reproduced|Not reproduced|...> on X' or 'On X'. A version inside
+    parentheses, or after a negation in the same clause ('I have no 0.44.1 build', 'could not test on X'), does not count."""
+    flat = text
+    while True:
+        nxt = re.sub(r"\([^()]*\)", " ", flat)
+        if nxt == flat:
+            break
+        flat = nxt
+    found = []
+    for m in re.finditer(r"\b[Oo]n (" + VER + r")\b", flat):
+        clause = re.split(r"[.;:!?\n]\s|,\s(?:and|but|so)\s", flat[:m.start()])[-1]
+        if not NEGATION.search(clause):
+            found.append(m.group(1).lstrip("v"))
+    return found
+
+
 def lint_comment(text, by, case=None, ans=None, verdict=None, translation=""):
     """Every lint on a comment's text. `case`/`ans` may be None (follow-ups, audit): then only text lints run."""
     v, p, ans, case = [], profile(by), ans or {}, case or {}
@@ -1062,6 +1084,10 @@ def lint_comment(text, by, case=None, ans=None, verdict=None, translation=""):
         add("X01", "block", "a reproduction names the root cause: 'Root cause (confirmed|likely|unknown): file:function, mechanism'")
     if verdict in ("reproduced", "not_reproduced") and cur and cur not in text and not re.search(r"\bon (main|[0-9a-f]{7,40})\b", text):
         add("X02", "block", f"say which build it ran on (the current release is {cur})")
+    elif (verdict in ("reproduced", "not_reproduced") and cur and not re.search(r"\bon (main|[0-9a-f]{7,40})\b", text)
+          and not any(build_key(v) >= build_key(cur) for v in tested_versions(text))):
+        add("X04", "block", f"the current release ({cur}) is named, but not as the build this ran on: write 'Tested on {cur}: ...' "
+            f"(or 'On <newer rc> (newest): ...'). A version in parentheses or after 'no'/'not'/'could not' does not count")
     if verdict == "could_not_test" and CANT_RUN not in text:
         add("X03", "block", f"could_not_test must say exactly: '{CANT_RUN}'")
     lang = str(ans.get("reporter_language") or "English").strip()
