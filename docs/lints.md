@@ -76,3 +76,5 @@ Every applicable checklist question answered with the right type; `app_check` fo
 | R037 | all | block | 'Same as #N' is a duplicate claim. Use the duplicate verdict (same command AND same failure, live-checked), or say 'related: #N' and why. |
 | R038 | all | warn | Emoji in a triage comment. |
 | R039 | repro | block | A reproduction must name the build it ran on ('reproduced on 0.25.1'). |
+| R040 | all | block | Says we lack a build or cannot get a version ('I have no 0.44.1 build', 'no build I have', 'can't test on X'). Install it (kit/getbuild.sh, kit\getbuild.ps1) and state the version tested. |
+| R041 | all | block | Apology or complaint ('sorry', 'unfortunately'). State what was tested, on which version, and what it showed. |

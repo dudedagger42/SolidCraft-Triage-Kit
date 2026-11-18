@@ -131,6 +131,19 @@ rep = "Reproduced on 0.25.1: solid.fillet radius 2 fails with 'no result'; radiu
 expect("repro clean", rules_hit(rep, by="repro", c=C, a={}, v="reproduced"), set())
 expect("R039: needs-to-be-reproduced is not a claim", "R039" in rules_hit(t.CANT_RUN + " The report is from Linux.", by="repro", c=C, a={}, v="could_not_test"), False)
 expect("R039: claim without build", "R039" in rules_hit("Reproduced it. Root cause (unknown): ruled out a.", by="repro", c=C, a={}, v="reproduced"), True)
+# v2.37: never say we lack a build; no apologies (maintainer on #19078/#19105, 2026-11-18)
+for bad in ("Reproduced on 0.40.0-rc.3 (I have no 0.44.1 build): step 5 fails. Root cause (unknown): ruled out a.",
+            "Result: could not test; drawing.image.add is on main and in no build I have.",
+            "Not reproduced; the newest build I have is 0.40.0-rc.3.", "I can't test on 0.25.1 here.",
+            "I couldn't get a 0.45.0-rc.3 build.", "No 0.42.0 or 0.43.0 build here."):
+    expect(f"R040 blocks {bad[:40]!r}", "R040" in rules_hit(bad, by="repro", c=C, a={}, v="reproduced"), True)
+for good in ("Tested on 0.25.1: your six steps build with no error, rc: 0.", "On 0.45.0-rc.3 (newest): step 5 fails.",
+             "I could not get the fillet to build on 0.25.1 at any radius above 2 mm.", t.CANT_RUN,
+             "Which build did you use: the installer or the portable zip?"):
+    expect(f"R040 passes {good[:40]!r}", "R040" in rules_hit(good, by="repro", c=C, a={}, v="reproduced"), False)
+expect("R041: apology", "R041" in rules_hit("Sorry, which step fails?", c=C, a=bug(), v="needs_info"), True)
+expect("build order: release > rc > nightly", sorted(["0.45.0", "0.45.0-rc.10", "0.45.0-rc.3", "0.45.0-nightly.20261118.144.1", "0.44.1"], key=t.build_key),
+       ["0.44.1", "0.45.0-nightly.20261118.144.1", "0.45.0-rc.3", "0.45.0-rc.10", "0.45.0"])
 expect("X01: no root cause", "X01" in rules_hit("Reproduced on 0.25.1: it fails.", by="repro", c=C, a={}, v="reproduced"), True)
 expect("X03: could_not_test wording", "X03" in rules_hit("No display here.", by="repro", c=C, a={}, v="could_not_test"), True)
 expect("L01: missing translation", "L01" in rules_hit("Which step fails?", c=C, a=bug(reporter_language="French"), v="needs_info"), True)

@@ -225,7 +225,12 @@ def latest_release():
 
 
 def cmd_release(a):
-    say(f"current release: {latest_release()} (cached up to 1 h in state/release.json)")
+    cur = latest_release()
+    say(f"current release: {cur} (cached up to 1 h in state/release.json)")
+    have = installed_builds()
+    say(f"installed by getbuild in {builds_dir()}: {', '.join(have) or 'none'}")
+    if cur and cur not in have:
+        say(f"{cur} is not installed: run `kit/getbuild.sh ensure latest` (Linux/macOS) or `kit\\getbuild.ps1 ensure latest` (Windows) before testing")
 
 
 # ---------------------------------------------------------------- claims (MULTI.md)
@@ -1457,18 +1462,37 @@ def cmd_bump(a):
 
 
 # ---------------------------------------------------------------- appcheck / cluster / rootcause
+def build_key(v):
+    """Release order for SolidCraft versions: 0.45.0 > 0.45.0-rc.3 > 0.45.0-rc.2 > 0.45.0-nightly.20261118.144.1."""
+    m = re.match(r"v?(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.?([\d.]*))?", v or "")
+    if not m:
+        return (0, 0, 0, 0, ())
+    kind = 3 if not m.group(4) else 2 if m.group(4) == "rc" else 1
+    return tuple(int(x) for x in m.groups()[:3]) + (kind, tuple(int(x) for x in m.group(5).split(".") if x) if m.group(5) else ())
+
+
+def builds_dir():
+    return os.environ.get("SC_BUILDS_DIR") or os.path.join(ROOT, "builds")
+
+
 def newest_cli():
     env = os.environ.get("SOLIDCRAFT_CLI")
     if env and os.path.exists(env):
         return env
     import glob
-    found = glob.glob(os.path.join(ROOT, "builds", "upstream-*", "**", "solidcraft-cli*"), recursive=True)
+    found = glob.glob(os.path.join(builds_dir(), "upstream-*", "**", "solidcraft-cli*"), recursive=True)
 
     def ver(p):
-        m = re.search(r"upstream-(\d+)\.(\d+)\.(\d+)", p)
-        return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+        m = re.search(r"upstream-([^\\/]+)", p)
+        return build_key(m.group(1)) if m else (0, 0, 0, 0, ())
 
     return max(found, key=ver) if found else None
+
+
+def installed_builds():
+    import glob
+    return sorted((os.path.basename(d)[len("upstream-"):] for d in glob.glob(os.path.join(builds_dir(), "upstream-*"))
+                   if os.path.exists(os.path.join(d, ".getbuild.json"))), key=build_key, reverse=True)
 
 
 def cmd_appcheck(a):

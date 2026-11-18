@@ -36,6 +36,8 @@ tells you what the comment must do. Then you write the comment (if there is one)
 - At most ONE question, and a specific one. Never "more details".
 - Plain sentences, under 700 characters for a first pass. Re-read it as the reporter will: no fragments, no doubled
   words, no placeholders.
+- Never write that a build or version is missing ("I have no 0.44.1 build"), and never apologise: state the version
+  tested ("Tested on 0.44.1: ..."), or ask for the one thing needed (R040, R041).
 - Never: "we", thanks, praise, promises, "logged/noted/tracked", priority, a workaround you did not test, "reproduced"
   unless you ran it on the current release, a local path, a private or work file, an @-mention of anyone.
 - Any `.solidcraft` file is requested zipped: "right-click the .solidcraft file, Compress to ZIP, and drag the .zip into a
