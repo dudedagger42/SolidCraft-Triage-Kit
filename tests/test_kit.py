@@ -255,6 +255,9 @@ t.eyes = lambda n: [{"user": {"login": "example-account"}, "created_at": t2, "id
 expect("repro wanted: reproducer's 👀 holds it", t.claim_state(9001, issue)["mine"], True)
 t.eyes = lambda n: [{"user": {"login": "example-account"}, "created_at": old_ago, "id": 2}]
 expect("repro wanted: a 👀 from before the ask does not count", t.claim_state(9001, issue)["mine"], None)
+_own = dict(cmt(t.me(), t.wrap("Reproducing on 0.44.1."), t2), authorAssociation="COLLABORATOR")
+_st = t.claim_state(9002, dict(issue, comments=[_own]))
+expect("our own collaborator comment is not a maintainer reply", _st["reason"] != "a maintainer replied", True)
 st = t.claim_state(9001, dict(issue, comments=[want, repro]))
 expect("after the reproduction the reproducer owns it", (st["holder"], st["mine"]), ("example-account", True))
 t.REPRODUCERS = os.path.join(TMP, "reproducers.json")

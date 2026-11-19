@@ -197,7 +197,7 @@ def mode():
 # ---------------------------------------------------------------- maintainers and latest release
 def maintainers():
     m = set(CFG.get("maintainers") or []) | set(jload(os.path.join(STATE, "maintainers.json"), []))
-    return m
+    return m - {me()}  # our own account is a collaborator since 2026-11-13; its comments are never a maintainer reply
 
 
 def cmd_maintainers(a):
@@ -322,7 +322,7 @@ def claim_state(n, d=None):
     if any(c["author"]["login"] == author and (c["body"] or "").strip().lower().startswith("/claim") for c in cs):
         return {**res, "reason": "the author claimed it (/claim): they plan their own PR"}
     if any(c["author"]["login"] in mt or c.get("authorAssociation") in CFG["maintainer_associations"] for c in cs
-           if c["author"]["login"] != author):
+           if c["author"]["login"] not in (author, me())):
         return {**res, "reason": "a maintainer replied"}
     prs = linked_prs(n)
     if prs:
