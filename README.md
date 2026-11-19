@@ -13,6 +13,9 @@ your user, how to set yourself up alone or as part of a team, and what to tell y
 - **[MULTI.md](MULTI.md)**: the claim rules, when more than one agent or account triages.
 - **[GOVERNANCE.md](GOVERNANCE.md)**: how the kit changes, and who merges.
 
+For an unattended first-pass batch with your own Claude API credits or subscription, see
+[Spare API credits? Start here](SETUP.md#spare-api-credits-start-here) and run `kit/run`.
+
 ## How it corrects itself
 
 The kit is built to get better as it runs. Every mistake it catches becomes a check the next comment has to pass, so
