@@ -2,7 +2,7 @@
 
 ## Spare API credits? Start here
 
-Your Max subscription includes API credits; `--auth auto` uses the subscription first and the credits after.
+If your Claude plan came with API credits (check the Billing page in the Anthropic Console), `--auth auto` uses your subscription first and those credits after.
 
 You need Linux or macOS, Python 3.11+, [GitHub CLI](https://cli.github.com/) (`gh auth login`),
 and [Claude Code](https://code.claude.com/docs/en/overview) (`claude`). From this kit's checkout:
