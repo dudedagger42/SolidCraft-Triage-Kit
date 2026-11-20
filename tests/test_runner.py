@@ -267,6 +267,240 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaises(r.Stop):
             self.ledger()
 
+    def test_summary_uses_settled_costs_and_persisted_triage_counts(self):
+        ledger = self.ledger()
+        self.charge(ledger, "0.25")  # Haiku/maintenance overhead is included
+        self.assertIn("n/a (no full triages started)", ledger.summary())
+        ledger.start_triage(123, True)
+        self.charge(ledger, "0.75")
+        self.assertIn("$ per triage: $1.000000", self.ledger().summary())
+        self.assertIn("$ per triage: $0.750000", ledger.summary(1, 0))
+        ledger.reserve("sonnet")
+        self.assertIn("unresolved reservation (cost unknown)", ledger.summary())
+        self.assertTrue(json.loads(self.path.read_text())["triages"][0]["dry_run"])
+
+    def test_cache_prefix_and_hour_ttl_on_every_api_call(self):
+        client = r.Claude("fake", self.ledger())
+        client.prefix = "unchanging kit docs"
+        fake = subprocess.CompletedProcess([], 0, '{"total_cost_usd":0.1,"result":"ok"}', "")
+        with patch.dict(os.environ, {"FORCE_PROMPT_CACHING_5M": "1", "DISABLE_PROMPT_CACHING": "1"}), patch.object(r.subprocess, "run", return_value=fake) as run:
+            for model, issue in (("haiku", "123"), ("sonnet", "124")):
+                client.ask(model, issue)
+                cmd = run.call_args.args[0]
+                self.assertEqual(cmd[cmd.index("--system-prompt") + 1], "unchanging kit docs")
+                self.assertEqual(run.call_args.kwargs["input"], issue)
+                env = run.call_args.kwargs["env"]
+                self.assertEqual(env["CLAUDE_CODE_PROMPT_CACHE_TTL"], "1h")
+                self.assertEqual(env["ENABLE_PROMPT_CACHING_1H"], "1")
+                self.assertNotIn("FORCE_PROMPT_CACHING_5M", env)
+                self.assertNotIn("DISABLE_PROMPT_CACHING", env)
+        self.assertNotIn("CLAUDE_CODE_PROMPT_CACHE_TTL", r.model_env(None))
+
+    def gate_result(self):
+        return json.dumps(dict(attached_file=True, human_answered=False, duplicate=False))
+
+    def prepare_batch(self, numbers=(123, 124)):
+        controller = self.controller()
+        controller.max_triages = 2
+        (self.root / "state/cases").mkdir(parents=True, exist_ok=True)
+        events = []
+        def kit(args):
+            events.append(tuple(args))
+            if args[0] == "inbox":
+                output = "\n".join(f"#{n} report" for n in numbers)
+            else:
+                output = "0 work items"
+            if args[0] == "claim":
+                controller.claims.add(args[1])
+            if args[0] == "unclaim":
+                controller.claims.discard(args[1])
+            if args[0] == "case":
+                (self.root / f"state/cases/{args[1]}.json").write_text(json.dumps({"number": int(args[1]), "attachment_present": True, "dup_candidates": [{"number": 90}]}))
+            return json.dumps({"exit_code": 0, "output": output})
+        return controller, kit, events
+
+    def test_haiku_skips_each_ineligible_class_before_sonnet(self):
+        for field, value in (("attached_file", False), ("human_answered", True), ("duplicate", True)):
+            with self.subTest(field=field):
+                controller, kit, events = self.prepare_batch()
+                verdict = {"attached_file": True, "human_answered": False, "duplicate": False, field: value}
+                with patch.object(r, "instructions", return_value="static"), patch.object(controller, "kit", side_effect=kit), patch.object(controller, "thread", return_value="thread"), patch.object(controller.claude, "ask", return_value=json.dumps(verdict)) as ask, contextlib.redirect_stdout(io.StringIO()):
+                    self.assertTrue(r.batch(controller, "haiku", 10))
+                self.assertTrue(all(c.args[0] == "haiku" for c in ask.call_args_list))
+                self.assertFalse(any(e[0] == "case" for e in events))
+                self.assertEqual(controller.triages, 0)
+
+    def test_duplicate_case_gate_prevents_sonnet_and_releases_claim(self):
+        controller, kit, events = self.prepare_batch((123,))
+        duplicate = json.dumps({"attached_file": True, "human_answered": False, "duplicate": True})
+        with patch.object(r, "instructions", return_value="static"), patch.object(controller, "kit", side_effect=kit), patch.object(controller, "thread", return_value="thread"), patch.object(controller.claude, "ask", side_effect=[self.gate_result(), duplicate]) as ask, contextlib.redirect_stdout(io.StringIO()):
+            r.batch(controller, "haiku", 10)
+        self.assertEqual([c.args[0] for c in ask.call_args_list], ["haiku", "haiku"])
+        self.assertIn('"dup_candidates"', ask.call_args_list[-1].args[1])
+        self.assertIn(("case", "123", "--no-images"), events)
+        self.assertFalse(controller.claims)
+        self.assertEqual(controller.triages, 0)
+
+    def test_sequential_triages_and_cap_even_if_inbox_returns_extra(self):
+        controller, kit, events = self.prepare_batch()
+        controller.max_triages = 1
+        controller.claude.ledger = self.ledger()
+        done = json.dumps({"action": "done", "notes": "done", "selfcheck": {}})
+        with patch.object(r, "instructions", return_value="static docs"), patch.object(controller, "kit", side_effect=kit), patch.object(controller, "thread", return_value="thread") as thread, patch.object(controller.claude, "ask", side_effect=[self.gate_result(), self.gate_result(), done]) as ask, contextlib.redirect_stdout(io.StringIO()):
+            r.batch(controller, "haiku", 10)
+        self.assertEqual(thread.call_count, 1)
+        self.assertEqual(controller.triages, 1)
+        self.assertEqual(len(self.ledger().data["triages"]), 1)
+        self.assertEqual([c.args[0] for c in ask.call_args_list], ["haiku", "haiku", "sonnet"])
+        self.assertEqual(controller.claude.prefix, "static docs")
+        self.assertFalse(controller.claims)
+
+    def test_host_refuses_unscreened_issue_and_repro_handoff(self):
+        controller = self.controller()
+        controller.active_issue = 123
+        for action in ({"action": "kit", "args": ["case", "124"]},
+                       {"action": "kit", "args": ["wantrepro", "124"]},
+                       {"action": "kit", "args": ["next"]},
+                       {"action": "write", "path": "state/cases/124.comment.md", "text": "x"}):
+            with self.subTest(action=action), self.assertRaises(r.Stop):
+                controller.action(action)
+
+    def test_plan_defaults_overrides_and_dry_run_cost_summary(self):
+        home = self.root / "home"
+        home.mkdir()
+        key = home / r.KEY_NAME
+        key.write_text("fake")
+        key.chmod(0o600)
+        seen = []
+        def batch(controller, model, steps):
+            ledger = controller.claude.ledger
+            seen.append((ledger.daily, ledger.total, controller.max_triages))
+            ledger.start_triage(123, controller.dry)
+            self.charge(ledger, "0.625")
+            controller.previews = 1
+            return True
+        def run(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 0, "volunteer\n", "")
+        with patch.object(r, "ROOT", self.root), patch.object(r, "HOME_STATE", home), patch.object(r.shutil, "which", return_value="fake"), patch.object(r.subprocess, "run", side_effect=run), patch.object(r, "batch", side_effect=batch), contextlib.redirect_stdout(io.StringIO()) as output:
+            for args in ([], ["--plan", "max200"], ["--budget-usd", "2", "--plan", "max200", "--total-budget-usd", "30", "--max-triages", "3"]):
+                self.assertEqual(r.main([*args, "--dry-run"]), 0)
+        self.assertEqual(seen, [(Decimal(5), Decimal(100), 10), (Decimal(10), Decimal(200), 10), (Decimal(2), Decimal(30), 3)])
+        self.assertEqual(output.getvalue().count("DRY RUN batch ledger: $0.625000"), 3)
+        self.assertIn("$ per triage: $0.625000", output.getvalue())
+        self.assertIn(r.SPEND_LIMITS, output.getvalue())
+        self.assertIn("overshoot", output.getvalue())
+
+    def test_invalid_triage_caps_fail_before_child(self):
+        for cap in ("0", "-1"):
+            with patch.object(r, "HOME_STATE", self.root), patch.object(r.subprocess, "run") as run, contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(r.main(["--max-triages", cap]), 1)
+                run.assert_not_called()
+
+
+    def test_malformed_haiku_gate_stops_and_releases_claim(self):
+        controller, kit, events = self.prepare_batch((123,))
+        with patch.object(r, "instructions", return_value="static"), patch.object(controller, "kit", side_effect=kit), patch.object(controller, "thread", return_value="thread"), patch.object(controller.claude, "ask", return_value="[]") as ask, contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(r.Stop, "Malformed Haiku"):
+            r.batch(controller, "haiku", 10)
+        self.assertEqual(ask.call_count, 1)
+        self.assertFalse(controller.claims)
+        self.assertEqual(controller.triages, 0)
+
+    def test_failed_claim_never_starts_any_model(self):
+        controller, kit, events = self.prepare_batch((123,))
+        def failed_claim(args):
+            if args[0] == "claim":
+                return json.dumps({"exit_code": 1, "output": "already claimed elsewhere"})
+            return kit(args)
+        with patch.object(r, "instructions", return_value="static"), patch.object(controller, "kit", side_effect=failed_claim), patch.object(controller.claude, "ask") as ask, contextlib.redirect_stdout(io.StringIO()):
+            r.batch(controller, "haiku", 10)
+        ask.assert_not_called()
+        self.assertEqual(controller.triages, 0)
+
+    def test_two_issues_finish_back_to_back_in_one_batch(self):
+        controller, kit, events = self.prepare_batch()
+        calls = []
+        def ask(model, prompt):
+            calls.append((model, prompt, controller.active_issue))
+            if model == "haiku":
+                return self.gate_result()
+            return json.dumps({"action": "done", "notes": "done", "selfcheck": {}})
+        with patch.object(r, "instructions", return_value="static docs") as docs, patch.object(controller, "kit", side_effect=kit), patch.object(controller, "thread", return_value="thread"), patch.object(controller.claude, "ask", side_effect=ask), contextlib.redirect_stdout(io.StringIO()):
+            r.batch(controller, "haiku", 10)
+        self.assertEqual([m for m, _, _ in calls], ["haiku", "haiku", "sonnet", "haiku", "haiku", "sonnet"])
+        self.assertEqual([n for m, _, n in calls if m == "sonnet"], [123, 124])
+        self.assertNotIn('"number": 123', calls[-1][1])
+        self.assertEqual(controller.triages, 2)
+        docs.assert_called_once_with(self.root)
+
+    def test_file_must_be_present_even_if_haiku_approves(self):
+        controller, kit, events = self.prepare_batch((123,))
+        def no_file(args):
+            value = kit(args)
+            if args[0] == "case":
+                (self.root / "state/cases/123.json").write_text('{"attachment_present":false}')
+            return value
+        with patch.object(r, "instructions", return_value="static"), patch.object(controller, "kit", side_effect=no_file), patch.object(controller, "thread", return_value="thread"), patch.object(controller.claude, "ask", return_value=self.gate_result()) as ask, contextlib.redirect_stdout(io.StringIO()):
+            r.batch(controller, "haiku", 10)
+        self.assertTrue(all(c.args[0] == "haiku" for c in ask.call_args_list))
+        self.assertEqual(controller.triages, 0)
+        self.assertFalse(controller.claims)
+
+    def test_reproduction_handoff_requires_a_file_on_host(self):
+        controller = self.controller()
+        path = self.root / "state/cases/123.json"
+        path.parent.mkdir(parents=True)
+        path.write_text('{"attachment_present":false}')
+        with patch.object(r.subprocess, "run") as run, self.assertRaisesRegex(r.Stop, "attached file"):
+            controller.kit(["wantrepro", "123"])
+        run.assert_not_called()
+        path.write_text('{"attachment_present":true}')
+        fake = subprocess.CompletedProcess([], 0, "handed off", "")
+        with patch.object(r.subprocess, "run", return_value=fake) as run, contextlib.redirect_stdout(io.StringIO()):
+            controller.kit(["wantrepro", "123"])
+        self.assertEqual(run.call_count, 1)
+
+    def test_legacy_ledger_counts_are_not_invented(self):
+        self.path.write_text(json.dumps({"runs": [{"usd": "1", "day": "2026-11-19"}]}))
+        ledger = self.ledger()
+        self.assertEqual(ledger.remaining(), Decimal(4))
+        ledger.start_triage(123, True)
+        self.charge(ledger, "0.2")
+        self.assertIn("n/a (legacy usage lacks triage counts)", ledger.summary())
+        self.assertIn("$ per triage: $0.200000", ledger.summary(1))
+
+    def test_stopped_dry_batch_still_prints_measured_cost_summary(self):
+        home = self.root / "home"
+        home.mkdir()
+        key = home / r.KEY_NAME
+        key.write_text("fake")
+        key.chmod(0o600)
+        def batch(controller, model, steps):
+            ledger = controller.claude.ledger
+            ledger.start_triage(123, True)
+            self.charge(ledger, "0.31")
+            raise r.Stop("Action limit reached")
+        fake = subprocess.CompletedProcess([], 0, "volunteer", "")
+        with patch.object(r, "ROOT", self.root), patch.object(r, "HOME_STATE", home), patch.object(r.shutil, "which", return_value="fake"), patch.object(r.subprocess, "run", return_value=fake), patch.object(r, "batch", side_effect=batch), contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(r.main(["--dry-run"]), 1)
+        self.assertIn("DRY RUN batch ledger: $0.310000", output.getvalue())
+        self.assertIn("$ per triage: $0.310000", output.getvalue())
+        self.assertFalse((self.root / "state/runner-dry-run-volunteer.json").exists())
+
+    def test_maintenance_runs_without_opening_unscreened_triages(self):
+        controller, kit, events = self.prepare_batch(())
+        def with_followup(args):
+            if args[0] == "followups":
+                return json.dumps({"exit_code": 0, "output": "#99 a reply | FILE"})
+            return kit(args)
+        done = json.dumps({"action": "done", "notes": "checked old reply", "selfcheck": {}})
+        with patch.object(r, "instructions", return_value="static"), patch.object(controller, "kit", side_effect=with_followup), patch.object(controller.claude, "ask", return_value=done) as ask, contextlib.redirect_stdout(io.StringIO()):
+            r.batch(controller, "haiku", 10)
+        self.assertEqual(ask.call_count, 1)
+        self.assertIn("Maintenance only", ask.call_args.args[1])
+        self.assertEqual(controller.triages, 0)
+        with self.assertRaises(r.Stop):
+            controller.action({"action": "kit", "args": ["claim", "99"]})
+
 
 if __name__ == "__main__":
     unittest.main()
