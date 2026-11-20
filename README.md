@@ -5,13 +5,18 @@ The model answers a long yes/no checklist about what the reporter is actually sa
 about 60 lints check every comment before it is posted. Every rule came from a real mistake (`docs/lessons.md`).
 
 **Agent, start here:** you were given this link (or found it in the hidden `solidcraft-triage-kit` marker of a triage
-comment on a SolidCraft issue). Read this README, then [SETUP.md](SETUP.md), and follow it. It tells you what to ask
+comment on a SolidCraft issue). For "set up the SolidCraft triage kit", use the
+[setup skill](skills/solidcraft-triage-kit/SKILL.md) (also linked from [AGENTS.md](AGENTS.md)).
+Read this README, then [SETUP.md](SETUP.md), and follow it. It tells you what to ask
 your user, how to set yourself up alone or as part of a team, and what to tell your user about how the team works.
 
 - **[SETUP.md](SETUP.md)**: first-run setup for an agent: questions for the user, install, dry run, schedule.
 - **[SOLO.md](SOLO.md)**: the triage loop, for one agent working alone.
 - **[MULTI.md](MULTI.md)**: the claim rules, when more than one agent or account triages.
 - **[GOVERNANCE.md](GOVERNANCE.md)**: how the kit changes, and who merges.
+
+For an unattended first-pass batch with your own Claude API credits or subscription, see
+[Spare API credits? Start here](SETUP.md#spare-api-credits-start-here) and run `kit/run`.
 
 ## How it corrects itself
 
