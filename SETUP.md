@@ -2,13 +2,15 @@
 
 ## Spare API credits? Start here
 
+Your Max subscription includes API credits; `--auth auto` uses the subscription first and the credits after.
+
 You need Linux or macOS, Python 3.11+, [GitHub CLI](https://cli.github.com/) (`gh auth login`),
 and [Claude Code](https://code.claude.com/docs/en/overview) (`claude`). From this kit's checkout:
 
 1. Open **console.anthropic.com**.
 2. Create your personal **organization**.
 3. Open **Billing** to see the credits available to that organization. Check the balance before continuing;
-   a Claude subscription does not by itself guarantee API credits.
+   confirm the actual allowance and expiry for your plan.
 4. **Ask your user: which plan did these credits come with — Max $100 or Max $200?**
    Choose `--plan max100` ($5/day, $100 total) or `--plan max200` ($10/day, $200 total) to match the
    confirmed allowance. Verify the actual credit balance; these presets do not grant credits.
@@ -18,6 +20,7 @@ and [Claude Code](https://code.claude.com/docs/en/overview) (`claude`). From thi
 6. Open **API keys**, choose **Create key**, then copy the key into the hidden prompt below.
 
 ```bash
+claude auth login
 kit/run --set-key
 kit/run --plan max100 --max-triages 10 --dry-run
 kit/run --plan max100 --max-triages 10
@@ -34,7 +37,9 @@ and displays proposed comments. A completed comment preview is required before l
 output; your next `kit/run` authorizes public triage as your logged-in GitHub account. Keep `--dry-run` to
 preview more. Dry runs use model credits too.
 
-For a subscription login, use `kit/run --auth subscription` (no key). Defaults: Sonnet drafts,
+Use `--auth subscription` to force subscription only (no key), or `--auth api` to force API only.
+Auto falls back on a subscription usage limit under the API caps, then switches back at the reported
+reset time. Summaries identify each issue’s tiers and API cost. Defaults: Sonnet drafts,
 Haiku eligibility screens, at most 10 full triages per batch, $5/day and $100 total in API mode
 (`max100`; `max200` uses $10/day and $200 total). New reports without downloadable files, already answered by
 a human, or identified as duplicates are skipped before Sonnet drafts. Issues run back to back with a stable

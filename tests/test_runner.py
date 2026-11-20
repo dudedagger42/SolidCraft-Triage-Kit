@@ -110,6 +110,132 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertFalse(r.limit_message({"usage": {"input_tokens": 429}, "result": "ok"}))
 
+    def test_auto_subscription_api_and_reset_across_processes(self):
+        now = [r.dt.datetime(2026, 11, 19, 17, tzinfo=r.dt.timezone.utc)]
+        state = self.root / "subscription.json"
+        limit = subprocess.CompletedProcess([], 1, json.dumps({"is_error": True,
+            "result": "You've hit your limit · resets 1pm (America/New_York)"}), "")
+        ok = subprocess.CompletedProcess([], 0, '{"total_cost_usd":0.2,"result":"ok"}', "")
+        def client():
+            return r.Claude("fake-key", None, auth="auto", state_path=state,
+                            ledger_factory=self.ledger, clock=lambda: now[0])
+        first = client()
+        first.issue = 123
+        first.start_triage(123, True)
+        with patch.object(r.subprocess, "run", side_effect=[ok, limit, ok]) as run:
+            first.ask("haiku", "screen")
+            self.assertFalse(self.path.exists())
+            first.ask("sonnet", "draft")
+            self.assertEqual(["ANTHROPIC_API_KEY" in c.kwargs["env"] for c in run.call_args_list], [False, False, True])
+            self.assertEqual(run.call_args_list[1].kwargs["input"], run.call_args_list[2].kwargs["input"])
+            self.assertIn("--max-budget-usd", run.call_args.args[0])
+        self.assertEqual(json.loads(state.read_text())["reset_at"], "2026-11-19T18:00:00+00:00")
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            first.tier_summary()
+        self.assertIn("Triage #123: api, subscription; API cost: $0.200000", output.getvalue())
+        second = client()
+        with patch.object(r.subprocess, "run", return_value=ok) as run:
+            second.ask("sonnet", "continue")
+            self.assertIn("ANTHROPIC_API_KEY", run.call_args.kwargs["env"])
+            now[0] += r.dt.timedelta(hours=1)
+            second.ask("haiku", "back to subscription")
+            self.assertNotIn("ANTHROPIC_API_KEY", run.call_args.kwargs["env"])
+            self.assertNotIn("--max-budget-usd", run.call_args.args[0])
+        self.assertEqual(self.ledger().remaining(), Decimal("4.6"))
+
+    def test_reset_metadata_iso_epoch_and_unknown(self):
+        now = r.dt.datetime(2026, 11, 19, 17, tzinfo=r.dt.timezone.utc)
+        expected = now + r.dt.timedelta(hours=2)
+        for value in (expected.isoformat(), int(expected.timestamp())):
+            self.assertEqual(r.subscription_reset({"error": {"resets_at": value}}, "", now), expected)
+        self.assertEqual(r.subscription_reset("Usage limit resets at 2026-11-19T19:00:00Z", "", now), expected)
+        self.assertIsNone(r.subscription_reset("usage limit", "", now))
+
+    def test_auto_caps_and_api_limits_never_retry(self):
+        limit = subprocess.CompletedProcess([], 1, '{"is_error":true,"result":"usage limit","reset_at":"2099-01-01T00:00:00Z"}', "")
+        for daily in ("0", "5"):
+            self.path.unlink(missing_ok=True)
+            client = r.Claude("fake", None, auth="auto", ledger_factory=lambda: self.ledger(daily=daily))
+            with patch.object(r.subprocess, "run", return_value=limit) as run, self.assertRaises(r.Stop):
+                client.ask("sonnet", "hello")
+            self.assertEqual(run.call_count, 1 if daily == "0" else 2)
+        # A pending API reservation must not prevent a fresh subscription call.
+        client = r.Claude("fake", None, auth="auto", ledger_factory=self.ledger)
+        ok = subprocess.CompletedProcess([], 0, '{"result":"ok"}', "")
+        with patch.object(r.subprocess, "run", return_value=ok):
+            self.assertEqual(client.ask("haiku", "hello"), "ok")
+
+    def test_auto_does_not_fallback_on_other_failures_or_without_key(self):
+        for auth, key, message in (("auto", "fake", "connection failed"),
+                                   ("auto", None, "usage limit"),
+                                   ("subscription", "fake", "usage limit")):
+            client = r.Claude(key, None, auth=auth, ledger_factory=self.ledger)
+            fail = subprocess.CompletedProcess([], 1, json.dumps({"is_error": True, "result": message}), "")
+            with patch.object(r.subprocess, "run", return_value=fail) as run, self.assertRaises(r.Stop):
+                client.ask("sonnet", "hello")
+            self.assertEqual(run.call_count, 1)
+        self.assertFalse(self.path.exists())
+
+    def test_auto_default_main_uses_subscription_despite_key_and_exhausted_cap(self):
+        home = self.root / "home"
+        home.mkdir()
+        key = home / r.KEY_NAME
+        key.write_text("fake")
+        key.chmod(0o600)
+        ledger = r.Ledger(home / "usage.json", "5", "100")
+        self.charge(ledger, "5")
+        calls = []
+        def run(cmd, **kw):
+            if cmd[:3] == ["claude", "auth", "status"]:
+                return subprocess.CompletedProcess(cmd, 0, '{"authMethod":"claude.ai"}', "")
+            if cmd[:2] == ["gh", "api"]:
+                return subprocess.CompletedProcess(cmd, 0, "volunteer", "")
+            if cmd[:2] == ["claude", "-p"]:
+                calls.append(kw["env"])
+                return subprocess.CompletedProcess(cmd, 0, '{"result":"ok"}', "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        def batch(controller, model, steps):
+            controller.claude.issue = 123
+            controller.claude.start_triage(123, True)
+            controller.claude.ask("sonnet", "hello")
+            return True
+        with patch.object(r, "ROOT", self.root), patch.object(r, "HOME_STATE", home), patch.object(r.shutil, "which", return_value="fake"), patch.object(r.subprocess, "run", side_effect=run), patch.object(r, "batch", side_effect=batch), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(r.main([]), 0)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("ANTHROPIC_API_KEY", calls[0])
+        self.assertIn("Triage #123: subscription; API cost: $0.000000", output.getvalue())
+        self.assertEqual(len(json.loads((home / "usage.json").read_text())["runs"]), 1)
+
+    def test_reset_state_without_key_still_uses_subscription(self):
+        state = self.root / "subscription.json"
+        state.write_text('{"reset_at":"2099-01-01T00:00:00+00:00"}')
+        client = r.Claude(None, None, auth="auto", state_path=state)
+        ok = subprocess.CompletedProcess([], 0, '{"result":"ok"}', "")
+        with patch.object(r.subprocess, "run", return_value=ok) as run:
+            self.assertEqual(client.ask("sonnet", "hello"), "ok")
+        self.assertNotIn("--bare", run.call_args.args[0])
+
+    def test_unknown_reset_rechecks_subscription_and_success_text_is_not_a_limit(self):
+        client = r.Claude("fake", None, auth="auto", ledger_factory=self.ledger)
+        limit = subprocess.CompletedProcess([], 1, "You've hit your limit", "")
+        api = subprocess.CompletedProcess([], 0, '{"total_cost_usd":0.1,"result":"ok"}', "")
+        ok = subprocess.CompletedProcess([], 0, '{"result":"Explain the usage limit to the user"}', "")
+        with patch.object(r.subprocess, "run", side_effect=[limit, api, ok]) as run:
+            client.ask("sonnet", "hello")
+            self.assertIn("usage limit", client.ask("sonnet", "hello again"))
+        self.assertEqual(["ANTHROPIC_API_KEY" in c.kwargs["env"] for c in run.call_args_list], [False, True, False])
+
+    def test_forced_api_ignores_subscription_reset_and_stops_on_api_limit(self):
+        state = self.root / "subscription.json"
+        state.write_text("invalid irrelevant state")
+        client = r.Claude("fake", self.ledger(), auth="api", state_path=state)
+        limit = subprocess.CompletedProcess([], 1, '{"total_cost_usd":0.1,"is_error":true,"result":"credit balance too low"}', "")
+        with patch.object(r.subprocess, "run", return_value=limit) as run, self.assertRaises(r.Stop):
+            client.ask("sonnet", "hello")
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("ANTHROPIC_API_KEY", run.call_args.kwargs["env"])
+        self.assertEqual(self.ledger().remaining(), Decimal("4.9"))
+
     def test_key_roundtrip_permissions_and_no_echo(self):
         with patch.object(r.sys.stdin, "isatty", return_value=True), patch.object(r.getpass, "getpass", return_value="fake-secret"), contextlib.redirect_stdout(io.StringIO()) as output:
             r.set_key(self.root)
@@ -236,7 +362,7 @@ class RunnerTests(unittest.TestCase):
             return True
 
         def fake_run(cmd, **kw):
-            return subprocess.CompletedProcess(cmd, 0, "volunteer\n" if cmd[:2] == ["gh", "api"] else "", "")
+            return subprocess.CompletedProcess(cmd, 0, "volunteer\n" if cmd[:2] == ["gh", "api"] else '{"authMethod":"claude.ai"}', "")
 
         with patch.object(r, "ROOT", self.root), patch.object(r, "HOME_STATE", home), patch.object(r.shutil, "which", return_value="fake"), patch.object(r.subprocess, "run", side_effect=fake_run), patch.object(r, "batch", side_effect=fake_batch), contextlib.redirect_stdout(io.StringIO()), patch.dict(os.environ, {"TRIAGE_DRY_RUN": "0"}):
             self.assertEqual(r.main([]), 0)
@@ -383,7 +509,7 @@ class RunnerTests(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, 0, "volunteer\n", "")
         with patch.object(r, "ROOT", self.root), patch.object(r, "HOME_STATE", home), patch.object(r.shutil, "which", return_value="fake"), patch.object(r.subprocess, "run", side_effect=run), patch.object(r, "batch", side_effect=batch), contextlib.redirect_stdout(io.StringIO()) as output:
             for args in ([], ["--plan", "max200"], ["--budget-usd", "2", "--plan", "max200", "--total-budget-usd", "30", "--max-triages", "3"]):
-                self.assertEqual(r.main([*args, "--dry-run"]), 0)
+                self.assertEqual(r.main(["--auth", "api", *args, "--dry-run"]), 0)
         self.assertEqual(seen, [(Decimal(5), Decimal(100), 10), (Decimal(10), Decimal(200), 10), (Decimal(2), Decimal(30), 3)])
         self.assertEqual(output.getvalue().count("DRY RUN batch ledger: $0.625000"), 3)
         self.assertIn("$ per triage: $0.625000", output.getvalue())
@@ -481,7 +607,7 @@ class RunnerTests(unittest.TestCase):
             raise r.Stop("Action limit reached")
         fake = subprocess.CompletedProcess([], 0, "volunteer", "")
         with patch.object(r, "ROOT", self.root), patch.object(r, "HOME_STATE", home), patch.object(r.shutil, "which", return_value="fake"), patch.object(r.subprocess, "run", return_value=fake), patch.object(r, "batch", side_effect=batch), contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(r.main(["--dry-run"]), 1)
+            self.assertEqual(r.main(["--auth", "api", "--dry-run"]), 1)
         self.assertIn("DRY RUN batch ledger: $0.310000", output.getvalue())
         self.assertIn("$ per triage: $0.310000", output.getvalue())
         self.assertFalse((self.root / "state/runner-dry-run-volunteer.json").exists())

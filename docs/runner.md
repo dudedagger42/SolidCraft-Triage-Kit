@@ -1,9 +1,18 @@
 # Unattended runner
 
 Already use Claude Code with a subscription? Run `claude auth login`, then `kit/run --auth subscription --dry-run`
-and `kit/run --auth subscription`. No API key is needed. `--auth auto` (the default) uses the saved key if one
-exists, otherwise your subscription login. Subscription mode never falls back to the saved API key and stops
-on a plan-limit message. API rate/credit limits also stop the batch without retries on another model.
+and `kit/run --auth subscription`. No API key is needed for subscription-only use.
+`--auth auto` (the default) uses the subscription first, even when a saved API key exists. When the
+subscription reports a usage limit, it retries the same model request using the saved key under the
+API dollar caps. It stays on API until the reported reset time, then tries the subscription again.
+The reset is saved in `~/.config/solidcraft-triage/subscription.json` across scheduled runs. Explicit
+reset timestamps (ISO or epoch) and CLI messages such as `resets 7pm (America/New_York)` are supported.
+If no usable reset is reported, auto tries the subscription before the next request rather than guessing
+its reset time. Without a saved key, the limit stops the batch. If no subscription is logged in, auto
+uses the saved API key directly. Other subscription errors stop without API fallback.
+`--auth api` and `--auth subscription` force one tier; neither switches. API rate/credit limits stop
+without retries on another model. API caps apply only to API calls: an exhausted API allowance or
+unresolved API reservation does not prevent subscription work in auto mode.
 
 The runner handles one bounded SOLO batch: follow-ups, corrections, an audit, and new reports, retaining the
 kit's configured claim mode (`multi` by default). It is **first pass only**: it does not run attachments or
@@ -61,7 +70,11 @@ Haiku screening, drafts, verification and maintenance, and includes unfinished t
 price or a count of posted comments. A lifetime ledger summary uses the same calculation. Zero triages gives
 `n/a`, and unresolved reservations are shown as unknown cost, never counted as actual spend. Old ledger rows
 without triage counts still enforce caps, but their lifetime average is `n/a`; new batch averages remain available.
-Subscription mode reports `n/a` because it has no API billing ledger. CLI-reported costs are measured usage,
+Each issue summary lists the tiers used (including its eligibility screens) and its reported API cost;
+a triage that switches can list both. Maintenance has its own tier/cost line. Subscription costs are not
+charged to the API ledger. Subscription-only batches report `n/a` for the aggregate API average.
+In auto mode, the API ledger is opened only on the first API call; triages started earlier in that batch
+are then recorded too, so the API average includes subscription work in the same batch. CLI-reported costs are measured usage,
 not a guarantee of the provider's final invoice.
 
 Before each API call, the runner reserves its remaining allowance durably. Interrupted calls, invalid usage,

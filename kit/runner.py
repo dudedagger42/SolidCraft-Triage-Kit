@@ -15,6 +15,7 @@ import sys
 import tempfile
 import uuid
 import warnings
+from zoneinfo import ZoneInfo
 from contextlib import contextmanager
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -196,37 +197,155 @@ def limit_message(value):
                                    "max_budget", "budget limit", "too many requests", "payment required"))
 
 
+def subscription_reset(response, stderr, now):
+    """Accept explicit reset metadata or the CLI's 'resets 7pm (Area/City)' message."""
+    def timestamp(value):
+        try:
+            if isinstance(value, (int, float)) or str(value).isdigit():
+                return dt.datetime.fromtimestamp(float(value), dt.timezone.utc)
+            parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else None
+        except (ValueError, OverflowError, OSError):
+            return None
+
+    def walk(value):
+        found = []
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in ("resets_at", "reset_at", "resetsAt", "resetAt"):
+                    parsed = timestamp(item)
+                    if parsed and parsed > now:
+                        found.append(parsed)
+                elif isinstance(item, (dict, list)):
+                    found.extend(walk(item))
+        elif isinstance(value, list):
+            for item in value:
+                found.extend(walk(item))
+        return found
+
+    found = walk(response)
+    text = (str(response.get("result", "")) if isinstance(response, dict) else str(response)) + " " + stderr
+    for raw in re.findall(r"resets?\s+(?:at\s+)?(\d{4}-\d\d-\d\dT[\d:.]+(?:Z|[+-]\d\d:\d\d))", text, re.I):
+        parsed = timestamp(raw)
+        if parsed and parsed > now:
+            found.append(parsed)
+    match = re.search(r"resets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)", text, re.I)
+    if match:
+        hour, minute, period, zone = match.groups()
+        try:
+            hour = int(hour)
+            if not 1 <= hour <= 12:
+                raise ValueError("Invalid hour")
+            local = now.astimezone(ZoneInfo(zone))
+            reset = local.replace(hour=hour % 12 + (12 if period.lower() == "pm" else 0),
+                                  minute=int(minute or 0), second=0, microsecond=0)
+            if reset <= local:
+                reset += dt.timedelta(days=1)
+            found.append(reset.astimezone(dt.timezone.utc))
+        except (ValueError, KeyError):
+            pass
+    return max(found) if found else None
+
+
+class SubscriptionLimit(Stop):
+    def __init__(self, reset):
+        self.reset = reset
+
+
 class Claude:
-    def __init__(self, key, ledger):
+    def __init__(self, key, ledger, auth=None, state_path=None, ledger_factory=None, clock=None):
         self.key, self.ledger = key, ledger
+        self.auth = auth or ("api" if key is not None else "subscription")
+        self.state_path, self.ledger_factory = state_path, ledger_factory
+        self.clock = clock or (lambda: dt.datetime.now(dt.timezone.utc))
+        self.reset = None
+        if self.auth == "auto" and state_path and state_path.exists():
+            saved = json.loads(state_path.read_text()).get("reset_at")
+            if saved:
+                self.reset = dt.datetime.fromisoformat(saved)
+                if self.reset.tzinfo is None:
+                    raise Stop("Invalid subscription reset state")
         self.prefix = ""
+        self.issue = None
+        self.usage = {}
+        self.full_triages = {}
+        self.start_runs = len(ledger.data["runs"]) if ledger else 0
+        self.start_triages = len(ledger.data.get("triages", [])) if ledger else 0
+
+    def start_triage(self, number, dry):
+        self.full_triages[number] = dry
+        if self.ledger:
+            self.ledger.start_triage(number, dry)
+
+    def tier_summary(self):
+        for number, usage in self.usage.items():
+            tiers = ", ".join(sorted(usage["tiers"]))
+            scope = f"Triage #{number}" if number is not None else "Maintenance"
+            print(f"{scope}: {tiers}; API cost: ${usage['usd']:.6f}"
+                  + (" + unresolved usage" if usage["pending"] else ""))
 
     def ask(self, model, prompt):
+        api = self.auth == "api" or (self.auth == "auto" and self.key is not None and self.reset is not None and self.clock() < self.reset)
+        try:
+            return self._ask(model, prompt, api)
+        except SubscriptionLimit as exc:
+            if self.auth != "auto" or self.key is None:
+                raise Stop("Claude subscription plan limit reached; no API fallback available") from None
+            self.reset = exc.reset
+            if self.state_path:
+                atomic_json(self.state_path, {"reset_at": self.reset.isoformat() if self.reset else None})
+            print("Subscription usage limit reached; continuing on capped API tier."
+                  + (" Reset time unavailable; subscription will be tried on the next call." if not self.reset else ""))
+            return self._ask(model, prompt, True)
+
+    def _ask(self, model, prompt, api):
         cmd = ["claude", "-p", "--model", model, "--output-format", "json",
                "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
                "--setting-sources", "", "--settings", '{"disableAllHooks":true}',
                "--disable-slash-commands", "--no-session-persistence"]
         if self.prefix:
             cmd += ["--system-prompt", self.prefix]
+        usage = self.usage.setdefault(self.issue, {"tiers": set(), "usd": Decimal(0), "pending": False})
+        usage["tiers"].add("api" if api else "subscription")
         row = None
-        if self.ledger:
+        if api:
+            if self.ledger is None:
+                self.ledger = self.ledger_factory()
+                self.start_runs = len(self.ledger.data["runs"])
+                self.start_triages = len(self.ledger.data.get("triages", []))
+                for number, dry in self.full_triages.items():
+                    self.ledger.start_triage(number, dry)
             row, left = self.ledger.reserve(model)
+            usage["pending"] = True
             cmd += ["--bare", "--max-budget-usd", str(left)]
         result = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
-                                cwd=ROOT, env=model_env(self.key))
+                                cwd=ROOT, env=model_env(self.key if api else None))
         try:
             response = json.loads(result.stdout)
-            if self.ledger:
+        except ValueError:
+            response = result.stdout
+        failed = result.returncode or (isinstance(response, dict) and
+            (response.get("is_error") or str(response.get("subtype", "")).startswith("error")))
+        limited = failed and (limit_message(response) or limit_message(result.stderr))
+        if not api and limited:
+            raise SubscriptionLimit(subscription_reset(response, result.stderr, self.clock()))
+        try:
+            if not isinstance(response, dict):
+                raise ValueError("Invalid response")
+            if api:
                 self.ledger.settle(row, response["total_cost_usd"])
+                usage["usd"] += money(row["usd"])
+                usage["pending"] = False
         except (ValueError, KeyError, TypeError):
+            usage["pending"] = api
             if limit_message(result.stdout) or limit_message(result.stderr):
                 raise Stop("Claude API/plan limit reached; stopped. Unreported API usage remains reserved.") from None
             raise Stop("Claude returned no valid usage result; stopped. API reservation remains in ledger.") from None
-        if limit_message(response) or limit_message(result.stderr):
+        if limited:
             raise Stop("Claude API/plan limit reached; stopped without retrying or switching models")
         if result.returncode or response.get("is_error"):
             raise Stop("Claude failed; stopped (raw output withheld to protect credentials)")
-        if self.ledger:
+        if api:
             self.ledger.remaining()  # stop immediately if reported usage exhausts a cap
         return response["result"]
 
@@ -506,19 +625,19 @@ def batch(controller, first_model, steps):
         if steps < 1:
             raise Stop("Action limit reached")
         try:
+            controller.claude.issue = number
             case = screen(controller, first_model, number)
             if case is None:
                 continue
             controller.active_issue = number
-            ledger = controller.claude.ledger
-            if ledger:
-                ledger.start_triage(number, controller.dry)
+            controller.claude.start_triage(number, controller.dry)
             controller.triages += 1
             steps -= run_actions(controller, [{"scope": f"Full triage ONLY #{number}; finish it now.",
                                               "case": case}], steps)
         finally:
             controller.release_claims()
             controller.active_issue = None
+            controller.claude.issue = None
     return True
 
 
@@ -550,14 +669,23 @@ def main(argv=None):
             for executable in ("gh", "claude"):
                 if not shutil.which(executable):
                     raise Stop(f"Install {executable} before running")
-            api = args.auth == "api" or (args.auth == "auto" and (HOME_STATE / KEY_NAME).exists())
-            key = read_key(HOME_STATE / KEY_NAME) if api else None
+            api = args.auth == "api"
+            has_key = api or (args.auth == "auto" and (HOME_STATE / KEY_NAME).exists())
+            key = read_key(HOME_STATE / KEY_NAME) if has_key else None
+            client_auth = args.auth
             if not api:
                 status = subprocess.run(["claude", "auth", "status"], capture_output=True,
                                         text=True, env=child_env())
-                auth = json.loads(status.stdout)
+                try:
+                    auth = json.loads(status.stdout)
+                except ValueError:
+                    raise Stop("Could not check Claude subscription authentication") from None
                 if status.returncode or auth.get("authMethod") not in ("claude.ai", "oauth_token"):
-                    raise Stop("Log into Claude Code with your subscription using claude auth login")
+                    if args.auth == "auto" and has_key:
+                        api = True
+                        client_auth = "api"
+                    else:
+                        raise Stop("Log into Claude Code with your subscription using claude auth login")
             ledger = Ledger(HOME_STATE / "usage.json", args.budget_usd, args.total_budget_usd) if api else None
             if ledger:
                 print(f"API allowance remaining today/total: ${ledger.remaining()}")
@@ -575,12 +703,12 @@ def main(argv=None):
             result = subprocess.run([sys.executable, "-X", "utf8", "kit/triage.py", "selftest"], cwd=ROOT)
             if result.returncode:
                 raise Stop("Kit selftest failed")
-            controller = Controller(ROOT, Claude(key, ledger), args.draft_model, dry)
+            client = Claude(key, ledger, auth=client_auth, state_path=HOME_STATE / "subscription.json",
+                            ledger_factory=lambda: Ledger(HOME_STATE / "usage.json", args.budget_usd, args.total_budget_usd))
+            controller = Controller(ROOT, client, args.draft_model, dry)
             controller.max_triages = args.max_triages
-            start_runs = len(ledger.data["runs"]) if ledger else 0
-            start_triages = len(ledger.data.get("triages", [])) if ledger else 0
             controller.kit(["maintainers", "--refresh"])
-            if ledger:
+            if has_key:
                 print(f"CLI budgets can overshoot on the last request. Also set a Console spend limit: {SPEND_LIMITS}")
             try:
                 completed = batch(controller, args.read_model, args.max_actions)
@@ -589,8 +717,10 @@ def main(argv=None):
                     controller.release_claims()
                 finally:
                     label = "DRY RUN" if dry else "LIVE"
+                    client.tier_summary()
+                    ledger = client.ledger
                     if ledger:
-                        print(f"{label} batch ledger: {ledger.summary(start_runs, start_triages)}")
+                        print(f"{label} batch ledger: {ledger.summary(client.start_runs, client.start_triages)}")
                         print(f"Lifetime ledger: {ledger.summary()}")
                     else:
                         print(f"{label}: {controller.triages} full triages started; $ per triage: n/a (subscription; no API ledger)")
