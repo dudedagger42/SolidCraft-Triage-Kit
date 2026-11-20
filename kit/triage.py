@@ -1301,7 +1301,7 @@ def cmd_post(a):
 def cmd_fix(a):
     text = open(a.file, encoding="utf-8").read().strip()
     body, tr = split_translation(text)  # a fixed comment keeps its '**(<language>)** ...' translation; lint the two apart
-    v = [x for x in lint_comment(body, a.by, jload(os.path.join(CASES, f"{a.n}.json")), translation=tr) if x["severity"] == "block"]
+    v = [x for x in lint_comment(body, a.by, jload(os.path.join(CASES, f"{a.n}.json")), ans=(load_answers(a.n) if os.path.exists(os.path.join(CASES, f"{a.n}.answers.json")) else None), translation=tr) if x["severity"] == "block"]
     if v:
         show(v)
         sys.exit("REJECTED: fix the text")
@@ -1365,7 +1365,7 @@ def cmd_reply(a):
     e = followup_entry(a.n)
     text = open(a.file, encoding="utf-8").read().strip()
     tr = open(a.translation, encoding="utf-8").read().strip() if a.translation else ""
-    v = [x for x in lint_comment(text, a.by, jload(os.path.join(CASES, f"{a.n}.json")), translation=tr) if x["severity"] == "block"]
+    v = [x for x in lint_comment(text, a.by, jload(os.path.join(CASES, f"{a.n}.json")), ans=(load_answers(a.n) if os.path.exists(os.path.join(CASES, f"{a.n}.answers.json")) else None), translation=tr) if x["severity"] == "block"]
     if len(text) > CFG["comment_limit"]["reply"]:
         v.append({"rule": "T03", "severity": "block", "message": f"reply is {len(text)} chars (limit {CFG['comment_limit']['reply']})"})
     theirs = " ".join(r.get("body", "") for r in e.get("replies") or [])
