@@ -9,8 +9,9 @@ instead: its claim rules keep two agents off the same issue.
    header from that login, so the header always names the real poster.
 2. Clone this repo. `state/` (cases, queue, logs) is created next to `kit/` and is never committed.
 3. `state/config.local.json`: `{"mode": "solo"}`.
-4. The official build of the current release (`python -X utf8 kit/triage.py release`) unzipped in
-   `builds/upstream-<version>/`, or `SOLIDCRAFT_CLI` set to its `solidcraft-cli`. Used by `appcheck` and `repro/replay.py`.
+4. The official build of the current release: `kit/getbuild.sh ensure latest` (Windows: `kit\getbuild.ps1 ensure
+   latest`) before each batch installs it, verified, into `builds/upstream-<version>/` (docs/reproducing.md, "Builds").
+   Used by `appcheck` and `repro/replay.py`.
 5. Optional: an upstream checkout for `rootcause` (`SOLIDCRAFT_SRC`, with an `upstream` remote).
 6. Optional: `state/private-names.txt`, one name or regex per line for files that must never appear in a comment
    (your work parts, private designs). Lint P02 blocks them.

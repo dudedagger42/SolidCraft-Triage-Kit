@@ -158,12 +158,23 @@ def header():
     return f"**Triage by {me()}:**"
 
 
-def wrap(text, status=None, head=True):
+FAIL_ID_RE = re.compile(r"^(?:[0-9A-F]{5,6}|[0-9A-F]{11})$")
+
+
+def fail_id_line(fid):
+    """Dry run (Gabe 2026-11-15): the failure ID rides in its own hidden line, never in the visible text."""
+    if not (fid and FAIL_ID_RE.match(str(fid))):
+        return ""
+    return f"\n<!-- sc-fail-id {'v1' if len(str(fid)) == 11 else 'v0'} {fid} -->"
+
+
+def wrap(text, status=None, head=True, fid=None):
     """Header + text + hidden marker. The marker carries the kit version (and `status=reproducing` on a claim note,
     `status=repro_wanted` on a could-not-run comment that asks for a reproducer). Only the account's first comment in a
     thread carries the header; a reply (`head=False`) has the marker alone."""
     t = HEADER_RE.sub("", text.strip(), count=1).strip() if text.lstrip().startswith("**") else text.strip()
     mark = MARKER if not status else MARKER.replace(" -->", f" status={status} -->")
+    mark += fail_id_line(fid)
     return f"{header()} {t}\n\n{mark}" if head else f"{t}\n\n{mark}"
 
 
@@ -190,7 +201,7 @@ def mode():
 # ---------------------------------------------------------------- maintainers and latest release
 def maintainers():
     m = set(CFG.get("maintainers") or []) | set(jload(os.path.join(STATE, "maintainers.json"), []))
-    return m
+    return m - {me()}  # our own account is a collaborator since 2026-11-13; its comments are never a maintainer reply
 
 
 def cmd_maintainers(a):
@@ -218,7 +229,12 @@ def latest_release():
 
 
 def cmd_release(a):
-    say(f"current release: {latest_release()} (cached up to 1 h in state/release.json)")
+    cur = latest_release()
+    say(f"current release: {cur} (cached up to 1 h in state/release.json)")
+    have = installed_builds()
+    say(f"installed by getbuild in {builds_dir()}: {', '.join(have) or 'none'}")
+    if cur and cur not in have:
+        say(f"{cur} is not installed: run `kit/getbuild.sh ensure latest` (Linux/macOS) or `kit\\getbuild.ps1 ensure latest` (Windows) before testing")
 
 
 # ---------------------------------------------------------------- claims (MULTI.md)
@@ -226,18 +242,25 @@ def issue_live(n):
     return ghj("issue", "view", str(n), "-R", REPO, "--json", "number,title,state,labels,author,createdAt,comments,url,body")
 
 
-def linked_prs(n):
+def prs_in_timeline(events):
+    """Open PRs of REPO itself that cross-reference the issue; a PR in another repo with the same number is not one."""
     out = []
-    try:
-        for e in ghj("api", f"repos/{REPO}/issues/{n}/timeline?per_page=100", "-H", "Accept: application/vnd.github+json"):
-            src = (e.get("source") or {}).get("issue") or {}
-            if e.get("event") == "cross-referenced" and src.get("pull_request") and src.get("state") == "open":
-                out.append(src["number"])
-            elif e.get("event") == "connected":
-                out.append("connected")
-    except RuntimeError:
-        pass
+    for e in events:
+        src = (e.get("source") or {}).get("issue") or {}
+        same_repo = (src.get("repository") or {}).get("full_name", "").lower() == REPO.lower() or \
+            (src.get("repository_url") or "").lower().endswith("/repos/" + REPO.lower())
+        if e.get("event") == "cross-referenced" and src.get("pull_request") and src.get("state") == "open" and same_repo:
+            out.append(src["number"])
+        elif e.get("event") == "connected":
+            out.append("connected")
     return out
+
+
+def linked_prs(n):
+    try:
+        return prs_in_timeline(ghj("api", f"repos/{REPO}/issues/{n}/timeline?per_page=100", "-H", "Accept: application/vnd.github+json"))
+    except RuntimeError:
+        return []
 
 
 def reactions(n, content):
@@ -303,7 +326,7 @@ def claim_state(n, d=None):
     if any(c["author"]["login"] == author and (c["body"] or "").strip().lower().startswith("/claim") for c in cs):
         return {**res, "reason": "the author claimed it (/claim): they plan their own PR"}
     if any(c["author"]["login"] in mt or c.get("authorAssociation") in CFG["maintainer_associations"] for c in cs
-           if c["author"]["login"] != author):
+           if c["author"]["login"] not in (author, me())):
         return {**res, "reason": "a maintainer replied"}
     prs = linked_prs(n)
     if prs:
@@ -782,7 +805,9 @@ def compact_case(c):
 def build_prompt(c):
     t = open(os.path.join(ROOT, "docs", "prompt.md"), encoding="utf-8").read()
     clusters = open(os.path.join(ROOT, "docs", "duplicate-clusters.md"), encoding="utf-8").read()
-    return (t.replace("{{QUESTIONS}}", render_questions()).replace("{{CLUSTERS}}", clusters)
+    fid = open(os.path.join(ROOT, "docs", "fail-id.md"), encoding="utf-8").read()
+    t = t if "{{FAILID}}" in t else t.replace("{{CASE}}", "{{FAILID}}\n\n{{CASE}}", 1)
+    return (t.replace("{{FAILID}}", fid).replace("{{QUESTIONS}}", render_questions()).replace("{{CLUSTERS}}", clusters)
              .replace("{{RELEASE}}", str(c.get("current_release"))).replace("{{CASE}}", compact_case(c)))
 
 
@@ -808,6 +833,15 @@ def load_answers(n):
     return json.loads(m.group(0))
 
 
+def fail_code(f, case):
+    """Failure ID v1: the lane gives TT, MM and the program's message; failid.py makes K and the signature."""
+    import failid
+    state, err = f.get("error"), f.get("error_text") or ""
+    if state == "quoted" and failid.flat(err)[:200] not in failid.flat((case.get("title") or "") + (case.get("body") or "")):
+        state = "mentioned"  # a message not in the report word for word is no signature
+    return failid.make(f.get("tt", "FF"), f.get("mm", "FF"), err, state)
+
+
 def validate(ans, case):
     bad = []
     for q in questions():
@@ -822,6 +856,15 @@ def validate(ans, case):
             bad.append(f"{q['id']} `{k}` must be an issue number or null")
         elif q["kind"] in ("text", "language") and not isinstance(v, str):
             bad.append(f"{q['id']} `{k}` must be a string")
+    f = ans.get("fail")
+    if f is not None:
+        if not (isinstance(f, dict) and f.get("error") in ("quoted", "mentioned", "none")):
+            bad.append("F1 `fail` must be {tt, mm, error: quoted|mentioned|none, error_text}, see docs/fail-id.md")
+        else:
+            ans["fail_id"], ans["fail_key"] = fail_code(f, case)
+    fid = ans.get("fail_id")
+    if fid is not None and not (isinstance(fid, str) and FAIL_ID_RE.match(fid)):
+        bad.append("F1 `fail_id` must be 11 hex digits (v1) or 5-6 (v0), capitals (0-9, A-F), see docs/fail-id.md, or null")
     if ans.get("confidence") not in ("sure", "unsure"):
         bad.append("C1 `confidence` must be sure or unsure")
     if isinstance(ans.get("importance_reason"), str) and len(ans["importance_reason"].strip()) < 12:
@@ -892,16 +935,16 @@ def _decide(ans, case):
     if k == "support":
         if ans.get("app_already_does_it") or ans.get("can_answer_from_facts"):
             return "support_answer", ["say where it is: " + (ans.get("where_it_is") or "from your app check"), "no question unless one is needed"], "answerable from checked facts"
-        return ("needs_info", [f"ask: {q}"], "a usage question you cannot answer from checked facts") if q else ("no_action", [], "a usage question you cannot answer: unsure, for review")
+        return ("needs_info", [f"ask: {q}"], "a usage question you cannot answer from checked facts") if q else ("needs_info", ["name what is still missing to act on it (version, steps, the design zipped, a screenshot), one short ask", "if nobody can run it yet, say: I can only triage here; this still needs to be reproduced"], "a usage question you cannot answer: ask what is needed (Gabe 2026-11-18: every new issue gets a comment)")
     if k == "enhancement":
         return "feature_note", ["say whether it exists (link) or is new, from app_check", "at most one scoping question"], "a request for new behaviour"
     if k == "unclear":
-        return ("needs_info", [f"ask: {q}"], "unclear what is reported") if q else ("no_action", [], "unclear, and no pointed question")
+        return ("needs_info", [f"ask: {q}"], "unclear what is reported") if q else ("needs_info", ["name what is still missing to act on it (version, steps, the design zipped, a screenshot), one short ask", "if nobody can run it yet, say: I can only triage here; this still needs to be reproduced"], "unclear: ask what is needed (Gabe 2026-11-18: every new issue gets a comment)")
     # a bug
     if case.get("crash_user_steps"):
         return "needs_repro", [], "a crash report with the reporter's own steps: someone must try them on the current build"
     if len(case.get("crash_cluster") or []) >= 2 and not runnable and not case.get("crash_backtrace"):
-        return "no_action", [], "empty same-version crash report: log it (crashes CSV), no comment"
+        return "needs_info", ["name what is still missing to act on it (version, steps, the design zipped, a screenshot), one short ask", "if nobody can run it yet, say: I can only triage here; this still needs to be reproduced"], "empty same-version crash report: log it (crashes CSV) and ask for steps and the design (Gabe 2026-11-18)"
     if ans.get("sibling_already_asked"):
         return "needs_info", [f"point to #{ans['sibling_already_asked']} where the same step was already asked about, instead of a new question",
                               "a modelling failure with no file still needs the zip line"], "sibling issue already asked"
@@ -910,7 +953,7 @@ def _decide(ans, case):
     if runnable or (ans.get("has_error_text") and case.get("command_ids") and not no_design):
         return "needs_repro", [], "steps, a script or a runnable file: someone must run it on the current build"
     if case.get("bot_asked") and not q:
-        return "no_action", [], "the bot already asked for steps/version/OS and you have nothing pointed to add"
+        return "needs_info", ["name what is still missing to act on it (version, steps, the design zipped, a screenshot), one short ask", "if nobody can run it yet, say: I can only triage here; this still needs to be reproduced"] + ["the bot already asked: do not repeat its questions word for word; name only what is still missing"], "bot already asked; still comment (Gabe 2026-11-18: every new issue gets a comment)"
     if ans.get("thread_already_has_it") and not q:
         return "no_action", [], "the thread already has what you would ask for"
     if ans.get("hardware_or_driver_only"):
@@ -972,6 +1015,28 @@ def grammar_lints(text):
     if re.search(r"[.?!] [a-z]", t) and not re.search(r"[.?!] (e\.g|i\.e|vs)\b", t):
         out.append(("G04", "warn", "a sentence starts in lower case: a fragment may be left from an edit"))
     return out
+
+
+VER = r"v?\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?"
+NEGATION = re.compile(r"\b(?:no|without|lacks?|lacking|missing|can't|cannot|can not|couldn't|could not|don't|do not|didn't|did not|"
+                      r"doesn't|does not|isn't|is not|wasn't|was not|unavailable|before|older than)\b", re.I)
+
+
+def tested_versions(text):
+    """Versions a comment says it ran on: '<Tested|Reproduced|Not reproduced|...> on X' or 'On X'. A version inside
+    parentheses, or after a negation in the same clause ('I have no 0.44.1 build', 'could not test on X'), does not count."""
+    flat = text
+    while True:
+        nxt = re.sub(r"\([^()]*\)", " ", flat)
+        if nxt == flat:
+            break
+        flat = nxt
+    found = []
+    for m in re.finditer(r"\b[Oo]n (" + VER + r")\b", flat):
+        clause = re.split(r"[.;:!?\n]\s|,\s(?:and|but|so)\s", flat[:m.start()])[-1]
+        if not NEGATION.search(clause):
+            found.append(m.group(1).lstrip("v"))
+    return found
 
 
 def lint_comment(text, by, case=None, ans=None, verdict=None, translation=""):
@@ -1047,6 +1112,10 @@ def lint_comment(text, by, case=None, ans=None, verdict=None, translation=""):
         add("X01", "block", "a reproduction names the root cause: 'Root cause (confirmed|likely|unknown): file:function, mechanism'")
     if verdict in ("reproduced", "not_reproduced") and cur and cur not in text and not re.search(r"\bon (main|[0-9a-f]{7,40})\b", text):
         add("X02", "block", f"say which build it ran on (the current release is {cur})")
+    elif (verdict in ("reproduced", "not_reproduced") and cur and not re.search(r"\bon (main|[0-9a-f]{7,40})\b", text)
+          and not any(build_key(v) >= build_key(cur) for v in tested_versions(text))):
+        add("X04", "block", f"the current release ({cur}) is named, but not as the build this ran on: write 'Tested on {cur}: ...' "
+            f"(or 'On <newer rc> (newest): ...'). A version in parentheses or after 'no'/'not'/'could not' does not count")
     if verdict == "could_not_test" and CANT_RUN not in text:
         add("X03", "block", f"could_not_test must say exactly: '{CANT_RUN}'")
     lang = str(ans.get("reporter_language") or "English").strip()
@@ -1086,6 +1155,9 @@ def cmd_submit(a):
         if not a.result:
             sys.exit("the repro profile submits a result: --result reproduced|not_reproduced|could_not_test")
         verdict, must, why = a.result, [], "reproduction result"
+        f = ans.get("fail")
+        if isinstance(f, dict) and f.get("error") in ("quoted", "mentioned", "none"):
+            ans["fail_id"], ans["fail_key"] = fail_code(f, case)
     else:
         bad = validate(ans, case)
         if bad:
@@ -1113,6 +1185,50 @@ def cmd_submit(a):
     show(v)
     say(r["line_item"])
 
+
+
+# ---------------------------------------------------------------- kit updates (Gabe 2026-11-15: every 4-8 h)
+UPDATE_EVERY_S = 4 * 3600
+
+
+def _ver_key(v):
+    try:
+        return tuple(int(x) for x in v.strip().lstrip("v").split("."))
+    except ValueError:
+        return (0,)
+
+
+def update_check(force=False):
+    """At most every 4 h: fetch the kit repo; if origin/main has a newer VERSION, fast-forward when the checkout is on
+    main with no local commits, otherwise print what to do. Never stops the command. TRIAGE_NO_UPDATE=1 turns it off."""
+    if os.environ.get("TRIAGE_NO_UPDATE") == "1":
+        return
+    stamp = os.path.join(STATE, "update-check.json")
+    last = jload(stamp) or {}
+    if not force and time.time() - float(last.get("t") or 0) < UPDATE_EVERY_S:
+        if last.get("latest") and _ver_key(last["latest"]) > _ver_key(VERSION):
+            say(f"kit v{last['latest']} is out (this checkout is v{VERSION}): `git pull` in {ROOT}")
+        return
+    git = lambda *a: subprocess.run(["git", "-C", ROOT, *a], capture_output=True, text=True, encoding="utf-8")
+    latest = None
+    if git("fetch", "-q", "origin", "main").returncode == 0:
+        latest = git("show", "origin/main:VERSION").stdout.strip() or None
+    os.makedirs(STATE, exist_ok=True)
+    jsave(stamp, {"t": time.time(), "latest": latest, "checked_at": now()})
+    if not latest or _ver_key(latest) <= _ver_key(VERSION):
+        return
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    r = git("merge", "--ff-only", "-q", "origin/main") if branch == "main" else None
+    if r is not None and r.returncode == 0:
+        say(f"kit updated v{VERSION} -> v{latest} (fast-forward). This command runs on v{VERSION}; the next one uses v{latest}.")
+    else:
+        why = f"on branch {branch}" if branch != "main" else (r.stderr.strip().splitlines() or ["not a fast-forward"])[-1]
+        say(f"kit v{latest} is out (this checkout is v{VERSION}) and could not update itself ({why}): `git pull` in {ROOT}")
+
+
+def cmd_update(a):
+    """Check for a newer kit now (normally automatic, at most every 4 h, before any command)."""
+    update_check(force=True)
 
 # ---------------------------------------------------------------- post / fix
 def gap_wait():
@@ -1157,17 +1273,18 @@ def serial_post(fn):
 
 
 @serial_post
-def post_comment(n, text, status=None, d=None, by="first", extra=None):
+def post_comment(n, text, status=None, d=None, by="first", extra=None, fid=None):
     d = d or issue_live(n)
     head = not mine_on(d)  # the header opens the account's part of the thread once; replies carry only the marker
     if dry_run():
-        jl_append(os.path.join(LOGS, "dryrun.jsonl"), {"ts": now(), "issue": n, "text": wrap(text, status, head)})
-        say(wrap(text, status, head))
+        jl_append(os.path.join(LOGS, "dryrun.jsonl"), {"ts": now(), "issue": n, "text": wrap(text, status, head, fid)})
+        say(wrap(text, status, head, fid))
         return say(f"DRY RUN #{n}: the comment above was not posted; logged to state/logs/dryrun.jsonl")
     gap_wait()
-    out = ghj("api", f"repos/{REPO}/issues/{n}/comments", "-X", "POST", "-F", "body=@-", inp=wrap(text, status, head))
+    out = ghj("api", f"repos/{REPO}/issues/{n}/comments", "-X", "POST", "-F", "body=@-", inp=wrap(text, status, head, fid))
     open(LASTPOST, "w").write(str(time.time()))
-    jl_append(POSTED, {"ts": now(), "issue": n, "comment_id": out["id"], "url": out["html_url"], "by": by, "status": status, "text": text, **(extra or {})})
+    jl_append(POSTED, {"ts": now(), "issue": n, "comment_id": out["id"], "url": out["html_url"], "by": by, "status": status, "text": text,
+                       **({"fail_id": fid} if fid else {}), **(extra or {})})
     say(f"posted #{n}: {out['html_url']}")
     return out
 
@@ -1230,7 +1347,8 @@ def cmd_post(a):
                    if c["user"]["login"] == me() and (MARKER_RE.search(c["body"] or "") or [None, None, None])[2] == "reproducing")
         edit_comment(a.n, cid, text, "result replaces the 'Reproducing on' note")
     else:
-        post_comment(a.n, text, d=d, by=q["by"], extra={"verdict": q["verdict"], "priority": q["priority"]})
+        post_comment(a.n, text, d=d, by=q["by"], extra={"verdict": q["verdict"], "priority": q["priority"]},
+                     fid=(q.get("answers") or {}).get("fail_id"))
     if dry_run():  # keep it queued, so the live `post N` can follow once dry run is off
         q["dry_run_at"] = now()
     else:
@@ -1438,18 +1556,37 @@ def cmd_bump(a):
 
 
 # ---------------------------------------------------------------- appcheck / cluster / rootcause
+def build_key(v):
+    """Release order for SolidCraft versions: 0.45.0 > 0.45.0-rc.3 > 0.45.0-rc.2 > 0.45.0-nightly.20261118.144.1."""
+    m = re.match(r"v?(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.?([\d.]*))?", v or "")
+    if not m:
+        return (0, 0, 0, 0, ())
+    kind = 3 if not m.group(4) else 2 if m.group(4) == "rc" else 1
+    return tuple(int(x) for x in m.groups()[:3]) + (kind, tuple(int(x) for x in m.group(5).split(".") if x) if m.group(5) else ())
+
+
+def builds_dir():
+    return os.environ.get("SC_BUILDS_DIR") or os.path.join(ROOT, "builds")
+
+
 def newest_cli():
     env = os.environ.get("SOLIDCRAFT_CLI")
     if env and os.path.exists(env):
         return env
     import glob
-    found = glob.glob(os.path.join(ROOT, "builds", "upstream-*", "**", "solidcraft-cli*"), recursive=True)
+    found = glob.glob(os.path.join(builds_dir(), "upstream-*", "**", "solidcraft-cli*"), recursive=True)
 
     def ver(p):
-        m = re.search(r"upstream-(\d+)\.(\d+)\.(\d+)", p)
-        return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+        m = re.search(r"upstream-([^\\/]+)", p)
+        return build_key(m.group(1)) if m else (0, 0, 0, 0, ())
 
     return max(found, key=ver) if found else None
+
+
+def installed_builds():
+    import glob
+    return sorted((os.path.basename(d)[len("upstream-"):] for d in glob.glob(os.path.join(builds_dir(), "upstream-*"))
+                   if os.path.exists(os.path.join(d, ".getbuild.json"))), key=build_key, reverse=True)
 
 
 def cmd_appcheck(a):
@@ -1824,7 +1961,10 @@ def main():
     add("rootcause", cmd_rootcause, (["text"], {}), (["--cmd"], {}), (["--fetch"], dict(action="store_true")))
     add("status", cmd_status, (["--limit"], dict(type=int, default=30)))
     add("selftest", cmd_selftest)
+    add("update", cmd_update)
     a = ap.parse_args()
+    if a.fn not in (cmd_selftest, cmd_bump, cmd_update):
+        update_check()
     a.fn(a)
 
 
