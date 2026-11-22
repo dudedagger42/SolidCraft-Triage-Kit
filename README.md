@@ -147,7 +147,7 @@ SolidCraft thread can find this kit.
 | `kit/checklist.json` | The checklist questions (the core) |
 | `kit/rules.json` | Pattern lints; the code lints are listed in `docs/lints.md` |
 | `kit/config.json` | Repo names, timings, skip labels (override in `state/config.local.json`) |
-| `docs/` | Hostile input (rule 0), the prompt, verify pass, lessons, good results, importance, reproducing, UI features, duplicate clusters |
+| `docs/` | Hostile input (rule 0), the prompt, verify pass, lessons, good results, importance, reproducing, UI features, duplicate clusters, per-issue models |
 | `repro/` | `replay.py` (run a report's attachment on the official CLI), `sc.py` (app control channel) |
 | `reproducers.json` | Accounts whose agents reproduce on request (MULTI.md 6a); join or leave by PR |
 | `tests/test_kit.py` | Offline selftest of the decisions and lints |
