@@ -28,6 +28,7 @@ Profiles: `first` (the first pass, which runs nothing), `repro` (ran it), `all`.
 | D02/D05 | block | Duplicate comment does not link the issue, or does not say it is closed |
 | X01 | block | Reproduction without a Root cause (confirmed|likely|unknown) line |
 | X02 | block | Reproduction or non-reproduction without the build it ran on |
+| X04 | block | The current release appears, but not as the build it ran on: it must come from an "on <version>" statement ("Tested on 0.44.1:", "Reproduced on 0.44.1", "On 0.45.0-rc.3 (newest):"; the current release or newer). A version in parentheses or after a negation in the same clause ("(I have no 0.44.1 build)", "could not test on 0.44.1") does not count |
 | X03 | block | could_not_test without the exact 'I can only triage here; this still needs to be reproduced.' |
 | L01 | block | Non-English report without the translation |
 | L03 | block | A follow-up reply to someone who did not write English, without `reply --translation F --language L` |
@@ -76,3 +77,5 @@ Every applicable checklist question answered with the right type; `app_check` fo
 | R037 | all | block | 'Same as #N' is a duplicate claim. Use the duplicate verdict (same command AND same failure, live-checked), or say 'related: #N' and why. |
 | R038 | all | warn | Emoji in a triage comment. |
 | R039 | repro | block | A reproduction must name the build it ran on ('reproduced on 0.25.1'). |
+| R040 | all | block | Says we lack a build or cannot get a version ('I have no 0.44.1 build', 'no build I have', 'can't test on X'). Install it (kit/getbuild.sh, kit\getbuild.ps1) and state the version tested. |
+| R041 | all | block | Apology or complaint ('sorry', 'unfortunately'). State what was tested, on which version, and what it showed. |

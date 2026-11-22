@@ -3,6 +3,43 @@
 Who reproduces: the account that claimed the issue (MULTI.md rule 6), on the **current official build** (`triage.py
 release`). Claim only what you can run: an agent without a display skips GUI-only issues.
 
+## Builds: install before each batch (v2.37)
+
+Never test on whatever happens to be on the machine, and never write that a build is missing: install it.
+
+1. **Before each batch**, make sure the current release is installed (the script does nothing when it already is):
+   `kit/getbuild.sh ensure latest` (Linux, macOS, Git Bash) or `kit\getbuild.ps1 ensure latest` (Windows PowerShell).
+2. **Per issue**, also install the build the report needs:
+   - the report names a version newer than the current release (an rc, a nightly, `0.45.0-rc.3`): `ensure <that version>`;
+   - the report is from main or a nightly: `ensure nightly`; from an rc: `ensure rc` (the newest of each);
+   - the report names an older version: test on the current release first; add the older one only to show a boundary.
+3. **Run** through the script, so the build uses its own isolated profile:
+   `kit/getbuild.sh run <which> -- run script.json --results` (PowerShell: `kit\getbuild.ps1 run <which> run script.json
+   --results`, no `--`). For `repro/replay.py` or the app's control channel, set the variables `getbuild.sh env <which>` /
+   `getbuild.ps1 env <which>` prints (SOLIDCRAFT_CLI, SOLIDCRAFT_APP, SOLIDCRAFT_SETTINGS_DIR, SOLIDCRAFT_RECOVERY_DIR,
+   LOCALAPPDATA) in the same shell command that runs it.
+
+What the script guarantees: only releases of tangency-labs/solidcraft (never a URL or file from an issue); the version
+string must look like a version; the asset's sha256 must match GitHub's listed digest (or the release's SHA256SUMS.txt;
+it warns when neither exists); the download lands in a fresh folder and `kit/safe_extract.py` (run with `python -I`)
+extracts it into another fresh, empty folder, refusing absolute paths, `..`, devices and links that leave the tree. Each
+version lives in `builds/upstream-<version>/` with its profile in `builds/profile-<version>/` under the lane's own kit
+checkout (or `SC_BUILDS_DIR`). It never touches the user's own SolidCraft folders. `ensure` prints `SOLIDCRAFT_BUILD=`
+and `SOLIDCRAFT_CLI=`; `list` shows what is installed; `prune [keep]` deletes all but the newest installs (default 4).
+`triage.py release` names the current release and says whether it is installed.
+
+If an install fails (no network, a digest mismatch), say nothing about builds in a comment: post only what you ran and
+on which version, or leave the issue for the next run.
+
+## Wording: the version tested, nothing else (v2.37)
+
+- State the version tested: "Tested on 0.44.1: ...", "Reproduced on 0.44.1: ...", or "On 0.45.0-rc.3 (newest): ..." when
+  the newest build is all that runs it (a command that is only on an rc or main).
+- Never write that a build is missing or could not be had ("I have no 0.44.1 build", "no build I have runs it", "can't
+  test on X"), and no apologies or complaints. Lints R040 and R041 block them.
+- If something truly cannot be tested (hardware, OS, a file that is not attached), say in one line what is needed from
+  the reporter, then the X03 sentence.
+
 ## What a reproduction comment holds
 
 1. **Result**: the build and what you ran, and the exact output ("reproduced on 0.25.1: ..."). Words mean what they say:

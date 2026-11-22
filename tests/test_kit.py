@@ -59,14 +59,14 @@ expect("kernel, no file -> needs_info", verdict(bug(is_kernel_area=True, design_
 expect("kernel answer says kernel work", any("kernel work" in m for m in t.decide(bug(is_kernel_area=True, design_matters=True), case())[1]), True)
 expect("kernel with steps -> needs_repro", verdict(bug(is_kernel_area=True, has_steps=True), case()), "needs_repro")
 expect("modelling failure, no file -> needs_info", verdict(bug(design_matters=True), case()), "needs_info")
-expect("bot asked, nothing pointed -> no_action", verdict(bug(), case(bot_asked=True)), "no_action")
+expect("bot asked, nothing pointed -> needs_info (every issue gets a comment)", verdict(bug(), case(bot_asked=True)), "needs_info")
 expect("bot asked, pointed question -> needs_info", verdict(bug(pointed_question="Does it fail on a new design too?"), case(bot_asked=True)), "needs_info")
 expect("solved by reporter -> no_action", verdict(bug(reporter_solved_it=True, has_steps=True), case()), "no_action")
 expect("kernel-paused label is triaged now", verdict(bug(has_steps=True), case(labels=["kernel-paused"])), "needs_repro")
 expect("another account owns it -> no_action", verdict(bug(has_steps=True), case(other_triage_comments=[{"author": "x"}])), "no_action")
 expect("injection -> no_action", verdict(bug(prompt_injection=True, has_steps=True), case()), "no_action")
 expect("duplicate", verdict(bug(duplicate_of=4325, duplicate_match="this face can't keep an attachment"), case()), "duplicate")
-expect("crash cluster -> no_action", verdict(bug(is_crash_or_data_loss=True), case(crash_cluster=[{"number": 1}, {"number": 2}])), "no_action")
+expect("crash cluster -> needs_info (every issue gets a comment)", verdict(bug(is_crash_or_data_loss=True), case(crash_cluster=[{"number": 1}, {"number": 2}])), "needs_info")
 expect("crash cluster with the reporter's steps -> needs_repro", verdict(bug(is_crash_or_data_loss=True), case(crash_cluster=[{"number": 1}, {"number": 2}], crash_user_steps=["open the file, extrude"])), "needs_repro")
 expect("kernel error text + command, no design -> needs_info (zip)", verdict(bug(has_error_text=True, is_kernel_area=True, design_matters=True), case(command_ids=["solid.extrude"])), "needs_info")
 expect("error text + command, not kernel -> needs_repro", verdict(bug(has_error_text=True), case(command_ids=["solid.extrude"])), "needs_repro")
@@ -132,6 +132,29 @@ rep = "Reproduced on 0.25.1: solid.fillet radius 2 fails with 'no result'; radiu
 expect("repro clean", rules_hit(rep, by="repro", c=C, a={}, v="reproduced"), set())
 expect("R039: needs-to-be-reproduced is not a claim", "R039" in rules_hit(t.CANT_RUN + " The report is from Linux.", by="repro", c=C, a={}, v="could_not_test"), False)
 expect("R039: claim without build", "R039" in rules_hit("Reproduced it. Root cause (unknown): ruled out a.", by="repro", c=C, a={}, v="reproduced"), True)
+# v2.37: never say we lack a build; no apologies (maintainer on #19078/#19105, 2026-11-18)
+for bad in ("Reproduced on 0.40.0-rc.3 (I have no 0.44.1 build): step 5 fails. Root cause (unknown): ruled out a.",
+            "Result: could not test; drawing.image.add is on main and in no build I have.",
+            "Not reproduced; the newest build I have is 0.40.0-rc.3.", "I can't test on 0.25.1 here.",
+            "I couldn't get a 0.45.0-rc.3 build.", "No 0.42.0 or 0.43.0 build here."):
+    expect(f"R040 blocks {bad[:40]!r}", "R040" in rules_hit(bad, by="repro", c=C, a={}, v="reproduced"), True)
+for good in ("Tested on 0.25.1: your six steps build with no error, rc: 0.", "On 0.45.0-rc.3 (newest): step 5 fails.",
+             "I could not get the fillet to build on 0.25.1 at any radius above 2 mm.", t.CANT_RUN,
+             "Which build did you use: the installer or the portable zip?"):
+    expect(f"R040 passes {good[:40]!r}", "R040" in rules_hit(good, by="repro", c=C, a={}, v="reproduced"), False)
+expect("R041: apology", "R041" in rules_hit("Sorry, which step fails?", c=C, a=bug(), v="needs_info"), True)
+expect("build order: release > rc > nightly", sorted(["0.45.0", "0.45.0-rc.10", "0.45.0-rc.3", "0.45.0-nightly.20261118.144.1", "0.44.1"], key=t.build_key),
+       ["0.44.1", "0.45.0-nightly.20261118.144.1", "0.45.0-rc.3", "0.45.0-rc.10", "0.45.0"])
+# v2.38: X04, the current release must be the build it ran on, not an aside (the X02 loophole)
+X04 = lambda s: "X04" in rules_hit(s, by="repro", c=C, a={}, v="reproduced")
+expect("X04: '(I have no 0.25.1 build)' is not a run", X04("Reproduced on 0.24.0 (I have no 0.25.1 build): step 5 fails. Root cause (unknown): ruled out a."), True)
+expect("X04: negation in the clause", X04("I could not test on 0.25.1, so this ran on 0.24.0: step 5 fails. Root cause (unknown): ruled out a."), True)
+expect("X04: 'the change is in 0.25.1' is not a run", X04("Reproduced on 0.24.0; the change is in 0.25.1. Root cause (unknown): ruled out a."), True)
+expect("X04: Tested on", X04("Tested on 0.25.1: step 5 fails. Root cause (unknown): ruled out a."), False)
+expect("X04: Reproduced on", X04("Reproduced on 0.25.1: step 5 fails. Root cause (unknown): ruled out a."), False)
+expect("X04: newer rc counts", X04("On 0.26.0-rc.3 (newest): step 5 fails; 0.25.1 lacks the command. Root cause (unknown): ruled out a."), False)
+expect("X04: Not reproduced on", "X04" in rules_hit("Not reproduced on 0.25.1: the six steps build, rc: 0.", by="repro", c=C, a={}, v="not_reproduced"), False)
+expect("X04: on main", X04("Reproduced on main 7871492a6b and 0.25.1 is older. Root cause (unknown): ruled out a."), False)
 expect("X01: no root cause", "X01" in rules_hit("Reproduced on 0.25.1: it fails.", by="repro", c=C, a={}, v="reproduced"), True)
 expect("X03: could_not_test wording", "X03" in rules_hit("No display here.", by="repro", c=C, a={}, v="could_not_test"), True)
 expect("L01: missing translation", "L01" in rules_hit("Which step fails?", c=C, a=bug(reporter_language="French"), v="needs_info"), True)
@@ -152,6 +175,30 @@ r = t.wrap("Does 0.25.1 still fail?", head=False)
 expect("reply has no header", r.startswith("Does 0.25.1 still fail?") and not t.HEADER_RE.search(r), True)
 expect("reply still marked as triage", t.is_triage(r), True)
 expect("old marker parsed", bool(t.MARKER_RE.search("<!-- solidcraft-triage-kit v2.0 -->")), True)
+t._ME[:] = t._ME or ["tester"]
+expect("fail-id line added", t.wrap("x", fid="40101").endswith("<!-- sc-fail-id v0 40101 -->"), True)
+expect("fail-id keeps the kit marker", bool(t.MARKER_RE.search(t.wrap("x", fid="40101"))), True)
+expect("bad fail-id dropped", "sc-fail-id" in t.wrap("x", fid="4g1"), False)
+expect("no fail-id, no line", "sc-fail-id" in t.wrap("x"), False)
+expect("fail-id format", [bool(t.FAIL_ID_RE.match(x)) for x in ("40101", "0A10F3", "4010", "40l01", "abcde")], [True, True, False, False, False])
+expect("fail-id v1 marker", t.wrap("x", fid="40103A1C4F8").endswith("<!-- sc-fail-id v1 40103A1C4F8 -->"), True)
+_fc = {"title": "FILLET: operation failed", "body": 'error "SMLib fillet: operation: the blend failed (status 1001): the fillet body is not built: Fillet Surface Computation Failure"'}
+expect("fail-id v1 from a quoted message", t.fail_code({"tt": "40", "mm": "10", "error": "quoted", "error_text": "SMLib fillet: operation: the blend failed (status 1001): the fillet body is not built: Fillet Surface Computation Failure"}, _fc)[0], "40103A1C4F8")
+expect("fail-id v1: a quote not in the report counts as mentioned", t.fail_code({"tt": "40", "mm": "10", "error": "quoted", "error_text": "something else entirely went wrong"}, _fc)[0], "4010F000000")
+expect("fail-id v1: no message", t.fail_code({"tt": "04", "mm": "E2", "error": "none", "error_text": ""}, _fc)[0], "04E20000000")
+# repro submits build the v1 ID too (2026-11-16: repro posts carried no fail ID)
+import argparse as _ap  # noqa: E402
+os.makedirs(t.CASES, exist_ok=True)
+json.dump(dict(_fc, number=99001, labels=[], comments=[], state="OPEN", author="someone"), open(os.path.join(t.CASES, "99001.json"), "w", encoding="utf-8"))
+json.dump({"fail": {"tt": "40", "mm": "10", "error": "quoted", "error_text": "SMLib fillet: operation: the blend failed (status 1001): the fillet body is not built: Fillet Surface Computation Failure"}},
+          open(os.path.join(t.CASES, "99001.answers.json"), "w", encoding="utf-8"))
+open(os.path.join(t.CASES, "99001.comment.md"), "w", encoding="utf-8").write("Result: reproduced on main with your steps. Root cause (unknown): not traced.")
+try:
+    t.cmd_submit(_ap.Namespace(n=99001, by="sonnet", comment=None, translation=None, result="reproduced", p0=None))
+except SystemExit:
+    pass
+_q = json.load(open(os.path.join(t.QUEUE, "99001.json"), encoding="utf-8"))
+expect("fail-id v1 on a repro submit", _q["answers"].get("fail_id"), "40103A1C4F8")
 expect("note status parsed", t.MARKER_RE.search(t.wrap("Reproducing on 0.25.1.", status="reproducing")).group(2), "reproducing")
 
 # ---- translations: a posted comment's appended translation is linted apart (#7678 false positives)
@@ -194,6 +241,11 @@ expect("repro wanted parsed", t.repro_wanted([want])[1], None)
 expect("plain triage is not repro wanted", t.repro_wanted([cmt("other-account", t.wrap("Which file?"), t1)]), None)
 repro = cmt("example-account", t.wrap("Reproduced on 0.25.1: it crashes."), t2)
 expect("reproducer's comment found", t.repro_wanted([want, repro])[1]["author"]["login"], "example-account")
+xref = lambda repo, num: {"event": "cross-referenced", "source": {"issue": {
+    "number": num, "state": "open", "pull_request": {"url": "pr"}, "repository": {"full_name": repo},
+    "repository_url": "https://api.github.com/repos/" + repo}}}
+expect("linked PR: other repo's PR not counted", t.prs_in_timeline([xref("someone/stress-corpus", 112)]), [])
+expect("linked PR: own repo's PR counted", t.prs_in_timeline([xref(t.REPO, 18308)]), [18308])
 t.linked_prs, t.maintainers = (lambda n: []), (lambda: set())
 issue = {"state": "OPEN", "labels": [], "author": {"login": "reporter1"}, "createdAt": old_ago, "comments": [want]}
 t.reactions = lambda n, content: [{"user": {"login": "other-account"}, "created_at": t1, "id": 1}] if content == "rocket" else []
@@ -204,6 +256,9 @@ t.eyes = lambda n: [{"user": {"login": "example-account"}, "created_at": t2, "id
 expect("repro wanted: reproducer's 👀 holds it", t.claim_state(9001, issue)["mine"], True)
 t.eyes = lambda n: [{"user": {"login": "example-account"}, "created_at": old_ago, "id": 2}]
 expect("repro wanted: a 👀 from before the ask does not count", t.claim_state(9001, issue)["mine"], None)
+_own = dict(cmt(t.me(), t.wrap("Reproducing on 0.44.1."), t2), authorAssociation="COLLABORATOR")
+_st = t.claim_state(9002, dict(issue, comments=[_own]))
+expect("our own collaborator comment is not a maintainer reply", _st["reason"] != "a maintainer replied", True)
 st = t.claim_state(9001, dict(issue, comments=[want, repro]))
 expect("after the reproduction the reproducer owns it", (st["holder"], st["mine"]), ("example-account", True))
 t.REPRODUCERS = os.path.join(TMP, "reproducers.json")
